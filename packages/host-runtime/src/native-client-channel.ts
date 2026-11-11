@@ -550,6 +550,24 @@ export class NativeClientChannel {
       method === "thread/resume" ? { ...params, excludeTurns: true } : params,
     );
     if (generation !== this.#generationToken) return stale();
+    // Native creation can reply before the rollout writer flushes its first metadata record.
+    // Retry only this read race; persistent corruption must still reach the client.
+    for (const delay of [50, 100, 200, 400, 800]) {
+      if (
+        method !== "thread/read" ||
+        !threadId ||
+        !("error" in reply) ||
+        reply.error.code !== -32603 ||
+        !/^failed to read thread: thread-store internal error: failed to read session metadata .+: rollout at .+ is empty$/u.test(
+          reply.error.message,
+        )
+      )
+        break;
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      if (generation !== this.#generationToken) return stale();
+      reply = await this.#host.request(method, params);
+      if (generation !== this.#generationToken) return stale();
+    }
     // A native Thread exists before its first user message materializes history.
     // Only that explicit initial-page response means empty history, not a failed read.
     if (

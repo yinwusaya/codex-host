@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -165,6 +166,32 @@ describe("platform packagers", () => {
       );
     }
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "reports missing Inno Setup without testing an empty compiler path",
+    () => {
+      const script = path.join(root, "scripts/release/windows/package.ps1").replaceAll("'", "''");
+      const result = spawnSync(
+        "pwsh",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `function Test-Path {
+            param([string]$PathType, [string]$Path)
+            if ([string]::IsNullOrEmpty($Path)) { throw "Unexpected empty compiler path" }
+            return $false
+          }
+          & '${script}' -PayloadRoot . -OutputPath unused.exe -Version 0.0.0 -Architecture x64`,
+        ],
+        { encoding: "utf8", timeout: 15_000, windowsHide: true },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("Install Inno Setup 6 before packaging.");
+      expect(result.stderr).not.toContain("Unexpected empty compiler path");
+    },
+  );
 
   it("builds a standard Inno Setup installer for both Windows architectures", async () => {
     const [script, installer] = await Promise.all([

@@ -1,4 +1,5 @@
 import { parseHostUsage, type HostUsage, type HarnessUsageEntry } from "@codexhost/harness-adapter";
+import { HarnessUsageSourceChangedError } from "@codexhost/harness-adapter/usage-statistics";
 import { createCodexUsageStatistics } from "./usage-statistics.js";
 import { object } from "./counters.js";
 import { rolloutTokenSnapshot } from "./session-observation.js";
@@ -119,7 +120,7 @@ export function createCodexSessionHistoryReader(environment: NodeJS.ProcessEnv) 
     }
     // An inherited read may overlap a live append to the child; never cache a mixed generation.
     if ((await sourceFingerprint(sessionId, signal)) !== source.fingerprint)
-      throw new Error("Codex rollout changed while restoring history");
+      throw new HarnessUsageSourceChangedError("Codex rollout changed while restoring history");
     const inputTokens = entries.reduce((sum, r) => sum + r.inputTokens, 0);
     const outputTokens = entries.reduce((sum, r) => sum + r.outputTokens, 0);
     const cachedInputTokens = entries.every((r) => r.cachedInputTokens !== undefined)

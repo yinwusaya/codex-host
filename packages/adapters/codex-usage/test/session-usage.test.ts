@@ -1,9 +1,11 @@
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HarnessUsageSourceChangedError } from "@codexhost/harness-adapter/usage-statistics";
 import { createUsageStatisticsAdapter } from "../src/plugin.js";
 import { createCodexUsageStatistics } from "../src/usage-statistics.js";
+import * as statistics from "../src/usage-statistics.js";
 import { observeSessionUsage } from "../src/session-observation.js";
 
 const thread = "00000000-0000-4000-8000-000000000001";
@@ -45,6 +47,57 @@ afterEach(async () => {
 });
 
 describe("Codex session usage capability", () => {
+  it.each([
+    ["reading", 1],
+    ["restoring", 1],
+    ["reading", Infinity],
+    ["restoring", Infinity],
+  ] as const)("retries bounded file changes while %s (changes: %s)", async (phase, changes) => {
+    const original = statistics.createCodexUsageStatistics;
+    let reads = 0;
+    let appended = 0;
+    const append = async () => {
+      if (appended < changes) await appendFile(file, request(`appended-${++appended}`));
+    };
+    const factory = vi
+      .spyOn(statistics, "createCodexUsageStatistics")
+      .mockImplementation((environment, options = {}) => {
+        const reader = original(environment, options);
+        if (!options.onTokenCount) return reader;
+        return {
+          async listSources(signal) {
+            const sources = await reader.listSources(signal);
+            if (phase === "reading") await append();
+            return sources;
+          },
+          async readSource(id, signal) {
+            reads++;
+            const entries = await reader.readSource(id, signal);
+            if (phase === "restoring") await append();
+            return entries;
+          },
+        };
+      });
+    const plugin = adapter();
+    try {
+      if (changes === Infinity) {
+        await expect(plugin.sessionUsage.read(thread, signal())).rejects.toSatisfy(
+          HarnessUsageSourceChangedError.is,
+        );
+        expect(reads).toBe(3);
+      } else {
+        const result = await plugin.sessionUsage.read(thread, signal());
+        expect(result?.complete).toBe(true);
+        expect(result?.requests).toHaveLength(2);
+        expect(result?.usage?.inputTokens).toBe(200);
+        expect(reads).toBe(2);
+      }
+    } finally {
+      factory.mockRestore();
+      await plugin.close();
+    }
+  });
+
   it("replays history, preserves per-request models and deduplicates appended checkpoints", async () => {
     const plugin = adapter();
     const capability = plugin.sessionUsage;

@@ -13,7 +13,7 @@ $InnoCompilerCandidates = @(
   (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
 )
 $InnoCompiler = $InnoCompilerCandidates | Where-Object { Test-Path -PathType Leaf $_ } | Select-Object -First 1
-if (-not (Test-Path -PathType Leaf $InnoCompiler)) {
+if (-not $InnoCompiler) {
   throw "Inno Setup compiler was not found. Install Inno Setup 6 before packaging."
 }
 $ResolvedPayload = (Resolve-Path $PayloadRoot).Path

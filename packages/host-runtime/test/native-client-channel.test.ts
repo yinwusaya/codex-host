@@ -72,6 +72,82 @@ it("captures the native snapshot cursor before resume/read I/O and keeps real co
   expect(calls.filter((method) => method === "thread/resume")).toHaveLength(2);
 });
 
+const emptyRolloutReply: NativeClientReply = {
+  error: {
+    code: -32603,
+    message:
+      "failed to read thread: thread-store internal error: failed to read session metadata C:\\synthetic\\rollout.jsonl: rollout at C:\\synthetic\\rollout.jsonl is empty",
+  },
+};
+
+it("waits for initial rollout metadata before returning a native snapshot", async () => {
+  const { channel, request } = snapshotChannel();
+  const implementation = request.getMockImplementation();
+  if (!implementation) throw new Error("Missing native fixture");
+  let reads = 0;
+  request.mockImplementation(async (method) => {
+    if (method === "thread/read" && ++reads <= 2) return emptyRolloutReply;
+    return implementation(method);
+  });
+
+  const snapshot = await channel.snapshot("native-thread", {});
+  expect(snapshot.thread.id).toBe(thread.id);
+  expect(snapshot.turnsPage).toEqual({ data: [], nextCursor: null });
+  expect(reads).toBe(3);
+  expect(request.mock.calls.filter(([method]) => method === "thread/resume")).toHaveLength(1);
+});
+
+it("returns a persistently empty rollout error after bounded read retries", async () => {
+  vi.useFakeTimers();
+  try {
+    const { channel, request } = snapshotChannel();
+    request.mockResolvedValue(emptyRolloutReply);
+    const startedAt = Date.now();
+    const pending = channel.request("thread/read", { threadId: "native-thread" });
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual(emptyRolloutReply);
+    expect(request).toHaveBeenCalledTimes(6);
+    expect(Date.now() - startedAt).toBe(1550);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it.each([
+  ["thread/read", { error: { code: -32603, message: "invalid rollout metadata" } }],
+  [
+    "thread/read",
+    { error: { code: -32600, message: "rollout at C:\\synthetic\\rollout.jsonl is empty" } },
+  ],
+  ["thread/start", emptyRolloutReply],
+  ["thread/resume", emptyRolloutReply],
+  ["thread/turns/list", emptyRolloutReply],
+] satisfies [string, NativeClientReply][])(
+  "does not retry other native failures: %s %j",
+  async (method, reply) => {
+    const { channel, request } = snapshotChannel();
+    request.mockResolvedValue(reply);
+    expect(await channel.request(method, { threadId: "native-thread" })).toEqual(reply);
+    expect(request).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("does not retry an empty rollout read after the native generation changes", async () => {
+  vi.useFakeTimers();
+  try {
+    const { channel, request } = snapshotChannel();
+    request.mockResolvedValue(emptyRolloutReply);
+    const pending = channel.request("thread/read", { threadId: "native-thread" });
+    await vi.advanceTimersByTimeAsync(0);
+    channel.resetGeneration();
+    await vi.runAllTimersAsync();
+    expect(await pending).toMatchObject({ error: { code: -32094 } });
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("projects a newly created Thread's unmaterialized history as empty without caching it", async () => {
   const { channel, request } = snapshotChannel();
   const implementation = request.getMockImplementation();

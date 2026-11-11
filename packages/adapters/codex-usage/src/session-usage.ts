@@ -4,7 +4,8 @@ import { resolve, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseHostUsageRequest, type HostUsage } from "@codexhost/harness-adapter";
 import type { HarnessSessionUsageCapability } from "@codexhost/harness-adapter/plugin";
-import { createCodexSessionHistoryReader } from "./session-history.js";
+import { HarnessUsageSourceChangedError } from "@codexhost/harness-adapter/usage-statistics";
+import { createCodexSessionHistoryReader, type CodexSessionHistory } from "./session-history.js";
 import { observeSessionUsage } from "./session-observation.js";
 import { CodexResponseTiming } from "./response-timing.js";
 import { object } from "./counters.js";
@@ -77,7 +78,16 @@ export function createCodexSessionUsage(
       signal = AbortSignal.any([signal, closed]);
       signal.throwIfAborted();
       for (let attempt = 0; ; attempt++) {
-        const history = await reader.read(sessionId, signal);
+        let history: CodexSessionHistory | null;
+        try {
+          history = await reader.read(sessionId, signal);
+        } catch (error) {
+          signal.throwIfAborted();
+          if (!HarnessUsageSourceChangedError.is(error) || attempt >= 2) throw error;
+          // Relist and rebuild the snapshot after a live append, never reuse partial counters.
+          await delay(50 * (attempt + 1), undefined, { signal });
+          continue;
+        }
         if (!history) return null;
         const requests = history.entries.map((entry) =>
           parseHostUsageRequest({
