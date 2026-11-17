@@ -86,7 +86,7 @@ it("reports an unreachable control endpoint and retains the failure across retri
 
 it("retries after Relay reaches maxConnections and registers when capacity is released", async (t) => {
   proxyEnvironment(t);
-  const relay = await startRelay(t, 25, { maxConnections: 1 });
+  const relay = await startRelay(t, undefined, { maxConnections: 1 });
   const occupying = client(t, `localhost:${relay.port}`);
   await until(() => occupying.registrations.length === 1);
   const waiting = client(t, `localhost:${relay.port}`);

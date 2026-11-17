@@ -27,7 +27,7 @@ export function relayData(t: TestContext): DataDir {
 }
 export async function startRelay(
   t: TestContext,
-  heartbeatInterval = 25,
+  heartbeatInterval = 25_000,
   options: Partial<RelayOptions> = {},
 ) {
   const relay = createRelay({

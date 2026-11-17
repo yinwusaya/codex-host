@@ -124,7 +124,7 @@ it("saves the switch without restarting, rejects remote changes, and keeps both 
 
 it("validates address names per relay kind and never sends invitations to a self-hosted relay", async (t) => {
   const requests: { name?: string; invite?: string }[] = [];
-  const relay = await startRelay(t, 25, {
+  const relay = await startRelay(t, undefined, {
     check: (request) => {
       requests.push(request);
       return { name: "alice" };

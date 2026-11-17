@@ -15,7 +15,7 @@ async function fixture(t: TestContext, options: Partial<RelayOptions> = {}, loca
     reply(503, { detail: "test CA unavailable" });
     return true;
   });
-  const relay = await startRelay(t, 25, options);
+  const relay = await startRelay(t, undefined, options);
   const data = relayData(t);
   const login = new URL(
     await startServer(
