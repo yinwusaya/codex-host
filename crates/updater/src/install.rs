@@ -187,130 +187,6 @@ fn refresh_npm_package_root(request: &mut UpdateRequest) -> Result<(), Box<dyn E
     Ok(())
 }
 
-#[cfg(test)]
-mod npm_tests {
-    use super::{
-        npm_install_command, npm_prefix, refresh_npm_package_root, sha256_file, verify_artifact,
-    };
-    use crate::request::{Installation, NpmInstallation, UpdateRequest};
-    use serde_json::json;
-
-    #[test]
-    fn preserves_the_prefix_of_the_installed_platform_package() {
-        let prefix = std::env::temp_dir().join("codexhost-prefix");
-        let modules = if cfg!(target_os = "windows") {
-            prefix.join("node_modules")
-        } else {
-            prefix.join("lib/node_modules")
-        };
-        assert_eq!(
-            npm_prefix(&modules.join("@codexhost/cli-linux-x64")).unwrap(),
-            prefix
-        );
-        assert!(npm_prefix(&prefix.join("not-a-global-install")).is_err());
-    }
-
-    #[test]
-    fn rejects_tampered_npm_artifacts() {
-        assert!(verify_artifact(&std::env::current_exe().unwrap(), &"00".repeat(32)).is_err());
-    }
-
-    #[test]
-    fn restarts_from_the_verified_global_payload_after_a_nested_package_upgrade() {
-        let prefix =
-            std::env::temp_dir().join(format!("codexhost-npm-relocate-{}", std::process::id()));
-        let scope = prefix.join("node_modules/@codexhost");
-        let cli_root = scope.join("cli");
-        let root = scope.join("cli-linux-x64");
-        std::fs::create_dir_all(root.join("app")).unwrap();
-        std::fs::write(root.join("app/codexhost-distribution.json"), serde_json::to_vec(&json!({
-            "schemaVersion": 1, "version": "1.2.3", "distribution": "npm", "target": "linux-x64",
-            "repository": "yinwusaya/codex-host", "commit": "a".repeat(40),
-        })).unwrap()).unwrap();
-        let mut request: UpdateRequest = serde_json::from_value(json!({
-            "schema_version": 1, "version": "1.2.3", "wait_pid": 1,
-            "wait_executable": "unused", "runtime_descriptor_path": "unused", "status_path": "unused",
-            "installation": { "kind": "npm", "node_path": "unused", "npm_cli_path": "unused",
-                "npm_launcher_path": cli_root.join("bin/codexhost.js"),
-                "npm_package_root": cli_root.join("node_modules/@codexhost/cli-linux-x64"),
-                "artifacts": { "cli_path": "unused", "cli_sha256": "unused", "platform_path": "unused", "platform_sha256": "unused" },
-            },
-        })).unwrap();
-        let old_root = request.installation.resources_root();
-        request.version = "1.2.4".into();
-        assert!(refresh_npm_package_root(&mut request).is_err());
-        assert_eq!(request.installation.resources_root(), old_root);
-        request.version = "1.2.3".into();
-        refresh_npm_package_root(&mut request).unwrap();
-        assert_eq!(request.installation.resources_root(), root);
-        assert_eq!(
-            request.installation.launcher_path(),
-            root.join("bin")
-                .join(format!("codexhost{}", std::env::consts::EXE_SUFFIX))
-        );
-        std::fs::remove_dir_all(prefix).unwrap();
-    }
-
-    #[test]
-    fn installs_verified_tarballs_at_the_cli_prefix_even_with_a_nested_platform_package() {
-        let prefix = std::env::temp_dir().join("codexhost-custom-prefix");
-        let modules = if cfg!(target_os = "windows") {
-            prefix.join("node_modules")
-        } else {
-            prefix.join("lib/node_modules")
-        };
-        let cli_root = modules.join("@codexhost/cli");
-        let artifact = std::env::current_exe().unwrap();
-        let digest = sha256_file(&artifact).unwrap();
-        let npm: NpmInstallation = serde_json::from_value(json!({
-            "node_path": "node",
-            "npm_cli_path": "npm-cli.js",
-            "npm_launcher_path": cli_root.join("bin/codexhost.js"),
-            "npm_package_root": cli_root.join("node_modules/@codexhost/cli-linux-x64"),
-            "artifacts": {
-                "cli_path": artifact, "cli_sha256": digest,
-                "platform_path": artifact, "platform_sha256": digest,
-            },
-        }))
-        .unwrap();
-        let request = UpdateRequest {
-            schema_version: 1,
-            version: "1.2.3".into(),
-            wait_pid: 1,
-            wait_executable: artifact.clone(),
-            runtime_descriptor_path: artifact.clone(),
-            restart_target: Default::default(),
-            data_directory: None,
-            service_managed: false,
-            status_path: artifact.clone(),
-            installation: Installation::Npm(npm),
-        };
-        let Installation::Npm(npm) = &request.installation else {
-            unreachable!()
-        };
-        let command = npm_install_command(&request, npm).unwrap();
-        let args = command
-            .get_args()
-            .map(|arg| arg.to_os_string())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            args,
-            vec![
-                "npm-cli.js".into(),
-                "install".into(),
-                "--global".into(),
-                "--no-audit".into(),
-                "--no-fund".into(),
-                "--prefix".into(),
-                prefix.into_os_string(),
-                "--omit=optional".into(),
-                artifact.clone().into_os_string(),
-                artifact.into_os_string(),
-            ]
-        );
-    }
-}
-
 /// A diagnostic log beside the operation status; updates proceed without it.
 fn operation_log(request: &UpdateRequest, name: &str) -> Option<File> {
     File::create(request.status_path.parent()?.join(name)).ok()
@@ -466,5 +342,129 @@ mod tests {
     fn distribution_metadata_rejects_unknown_fields() {
         let metadata = br#"{"schemaVersion":1,"version":"1.2.3","distribution":"npm","target":"macos-arm64","extra":true}"#;
         assert!(serde_json::from_slice::<DistributionMetadata>(metadata).is_err());
+    }
+}
+
+#[cfg(test)]
+mod npm_tests {
+    use super::{
+        npm_install_command, npm_prefix, refresh_npm_package_root, sha256_file, verify_artifact,
+    };
+    use crate::request::{Installation, NpmInstallation, UpdateRequest};
+    use serde_json::json;
+
+    #[test]
+    fn preserves_the_prefix_of_the_installed_platform_package() {
+        let prefix = std::env::temp_dir().join("codexhost-prefix");
+        let modules = if cfg!(target_os = "windows") {
+            prefix.join("node_modules")
+        } else {
+            prefix.join("lib/node_modules")
+        };
+        assert_eq!(
+            npm_prefix(&modules.join("@codexhost/cli-linux-x64")).unwrap(),
+            prefix
+        );
+        assert!(npm_prefix(&prefix.join("not-a-global-install")).is_err());
+    }
+
+    #[test]
+    fn rejects_tampered_npm_artifacts() {
+        assert!(verify_artifact(&std::env::current_exe().unwrap(), &"00".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn restarts_from_the_verified_global_payload_after_a_nested_package_upgrade() {
+        let prefix =
+            std::env::temp_dir().join(format!("codexhost-npm-relocate-{}", std::process::id()));
+        let scope = prefix.join("node_modules/@codexhost");
+        let cli_root = scope.join("cli");
+        let root = scope.join("cli-linux-x64");
+        std::fs::create_dir_all(root.join("app")).unwrap();
+        std::fs::write(root.join("app/codexhost-distribution.json"), serde_json::to_vec(&json!({
+            "schemaVersion": 1, "version": "1.2.3", "distribution": "npm", "target": "linux-x64",
+            "repository": "yinwusaya/codex-host", "commit": "a".repeat(40),
+        })).unwrap()).unwrap();
+        let mut request: UpdateRequest = serde_json::from_value(json!({
+            "schema_version": 1, "version": "1.2.3", "wait_pid": 1,
+            "wait_executable": "unused", "runtime_descriptor_path": "unused", "status_path": "unused",
+            "installation": { "kind": "npm", "node_path": "unused", "npm_cli_path": "unused",
+                "npm_launcher_path": cli_root.join("bin/codexhost.js"),
+                "npm_package_root": cli_root.join("node_modules/@codexhost/cli-linux-x64"),
+                "artifacts": { "cli_path": "unused", "cli_sha256": "unused", "platform_path": "unused", "platform_sha256": "unused" },
+            },
+        })).unwrap();
+        let old_root = request.installation.resources_root();
+        request.version = "1.2.4".into();
+        assert!(refresh_npm_package_root(&mut request).is_err());
+        assert_eq!(request.installation.resources_root(), old_root);
+        request.version = "1.2.3".into();
+        refresh_npm_package_root(&mut request).unwrap();
+        assert_eq!(request.installation.resources_root(), root);
+        assert_eq!(
+            request.installation.launcher_path(),
+            root.join("bin")
+                .join(format!("codexhost{}", std::env::consts::EXE_SUFFIX))
+        );
+        std::fs::remove_dir_all(prefix).unwrap();
+    }
+
+    #[test]
+    fn installs_verified_tarballs_at_the_cli_prefix_even_with_a_nested_platform_package() {
+        let prefix = std::env::temp_dir().join("codexhost-custom-prefix");
+        let modules = if cfg!(target_os = "windows") {
+            prefix.join("node_modules")
+        } else {
+            prefix.join("lib/node_modules")
+        };
+        let cli_root = modules.join("@codexhost/cli");
+        let artifact = std::env::current_exe().unwrap();
+        let digest = sha256_file(&artifact).unwrap();
+        let npm: NpmInstallation = serde_json::from_value(json!({
+            "node_path": "node",
+            "npm_cli_path": "npm-cli.js",
+            "npm_launcher_path": cli_root.join("bin/codexhost.js"),
+            "npm_package_root": cli_root.join("node_modules/@codexhost/cli-linux-x64"),
+            "artifacts": {
+                "cli_path": artifact, "cli_sha256": digest,
+                "platform_path": artifact, "platform_sha256": digest,
+            },
+        }))
+        .unwrap();
+        let request = UpdateRequest {
+            schema_version: 1,
+            version: "1.2.3".into(),
+            wait_pid: 1,
+            wait_executable: artifact.clone(),
+            runtime_descriptor_path: artifact.clone(),
+            restart_target: Default::default(),
+            data_directory: None,
+            service_managed: false,
+            status_path: artifact.clone(),
+            installation: Installation::Npm(npm),
+        };
+        let Installation::Npm(npm) = &request.installation else {
+            unreachable!()
+        };
+        let command = npm_install_command(&request, npm).unwrap();
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_os_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            args,
+            vec![
+                "npm-cli.js".into(),
+                "install".into(),
+                "--global".into(),
+                "--no-audit".into(),
+                "--no-fund".into(),
+                "--prefix".into(),
+                prefix.into_os_string(),
+                "--omit=optional".into(),
+                artifact.clone().into_os_string(),
+                artifact.into_os_string(),
+            ]
+        );
     }
 }

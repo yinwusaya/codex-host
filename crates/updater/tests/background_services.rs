@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 struct Fixture {
     root: PathBuf,
+    package_root: PathBuf,
     owner: Child,
 }
 impl Fixture {
@@ -18,11 +19,14 @@ impl Fixture {
             std::process::id(),
             thread::current().id()
         ));
-        fs::create_dir_all(root.join("package/bin")).unwrap();
+        let package_root = root.join("lib/node_modules/@codexhost/cli-linux-x64");
+        let npm_launcher = root.join("lib/node_modules/@codexhost/cli/bin/codexhost.js");
+        fs::create_dir_all(package_root.join("bin")).unwrap();
+        fs::create_dir_all(npm_launcher.parent().unwrap()).unwrap();
         for name in ["web-running", "host-running", "console-running"] {
             fs::write(root.join(name), "running").unwrap();
         }
-        let launcher = root.join("package/bin/codexhost");
+        let launcher = package_root.join("bin/codexhost");
         fs::write(
             &launcher,
             r#"#!/bin/sh
@@ -38,23 +42,32 @@ printf 'Host stopped; interrupted tasks: 7\n<opaque output>\n'
         .unwrap();
         fs::set_permissions(&launcher, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(root.join("install.sh"), format!(
-            "set -eu\n[ ! -f \"$HOME/web-running\" ]\n[ ! -f \"$HOME/host-running\" ]\nprintf 'install\\n' >> \"$HOME/order\"\nexit {}\n",
+            "set -eu\n[ \"$5\" = --prefix ]\n[ \"$6\" = \"$HOME\" ]\n[ \"$7\" = @codexhost/cli@1.2.3 ]\n[ ! -f \"$HOME/web-running\" ]\n[ ! -f \"$HOME/host-running\" ]\nprintf 'install\\n' >> \"$HOME/order\"\nexit {}\n",
             if fail_install { 1 } else { 0 }
         )).unwrap();
-        fs::write(root.join("launch.sh"), format!(
+        fs::write(&npm_launcher, format!(
             "set -eu\nprintf 'relaunch\\n' >> \"$HOME/order\"\ntouch \"$HOME/web-running\" \"$HOME/host-running\"\nprintf '%s' '{}' > \"$HOME/runtime.json\"\n",
             serde_json::json!({ "schema_version":1, "launcher_pid":std::process::id(), "control_port":4468, "nonce":"a".repeat(32) })
         )).unwrap();
         let owner = Command::new("/bin/sleep").arg("60").spawn().unwrap();
-        fs::write(root.join("request.json"), serde_json::to_vec(&serde_json::json!({
-            "schema_version": 1, "version":"1.2.3", "wait_pid":owner.id(),
-            "wait_executable":"/bin/sleep", "runtime_descriptor_path":root.join("runtime.json"),
-            "status_path":root.join("status.json"), "installation": {
-                "kind":"npm", "node_path":"/bin/sh", "npm_cli_path":root.join("install.sh"),
-                "npm_launcher_path":root.join("launch.sh"), "npm_package_root":root.join("package")
-            }
-        })).unwrap()).unwrap();
-        Self { root, owner }
+        fs::write(
+            root.join("request.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1, "version":"1.2.3", "wait_pid":owner.id(),
+                "wait_executable":"/bin/sleep", "runtime_descriptor_path":root.join("runtime.json"),
+                "status_path":root.join("status.json"), "installation": {
+                    "kind":"npm", "node_path":"/bin/sh", "npm_cli_path":root.join("install.sh"),
+                    "npm_launcher_path":npm_launcher, "npm_package_root":package_root
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        Self {
+            root,
+            package_root,
+            owner,
+        }
     }
     fn status(&self) -> Option<serde_json::Value> {
         fs::read(self.root.join("status.json"))
@@ -74,7 +87,7 @@ fn update(fail_install: bool, host_running: bool) {
     let mut fixture = Fixture::new(fail_install);
     if !host_running {
         fs::remove_file(fixture.root.join("host-running")).unwrap();
-        let launcher = fixture.root.join("package/bin/codexhost");
+        let launcher = fixture.package_root.join("bin/codexhost");
         let script = fs::read_to_string(&launcher)
             .unwrap()
             .replace(
@@ -164,7 +177,7 @@ fn failed_install_restores_services_and_preserves_failure_and_stop_output() {
 #[test]
 fn service_managed_handoff_does_not_wait_for_the_owner_and_reports_recovery_failure() {
     let mut fixture = Fixture::new(true);
-    let launcher = fixture.root.join("package/bin/codexhost");
+    let launcher = fixture.package_root.join("bin/codexhost");
     let script = fs::read_to_string(&launcher).unwrap().replace(
         "[ \"$3\" = /bin/sh ]",
         "[ \"$3\" = /bin/sh ]\n[ \"$4\" = --data ]\n[ \"$5\" = \"$HOME/data\" ]\n[ \"$CODEXHOST_DATA_DIR\" = \"$HOME/data\" ]",

@@ -191,7 +191,7 @@ describe("Skill Library", () => {
 
   it("evicts LRU workspaces and fences late results from an evicted generation", async () => {
     const cwd = join(home, "repo");
-    await skill(join(cwd, ".agents/skills/old"), "old");
+    const oldSkill = await skill(join(cwd, ".agents/skills/old"), "old");
     const original = fs.open;
     let release!: () => void;
     const gate = new Promise<void>((done) => {
@@ -200,7 +200,7 @@ describe("Skill Library", () => {
     let first = true;
     vi.spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
       const handle = await original(...args);
-      if (String(args[0]).includes("/old/") && first) {
+      if (args[0] === oldSkill && first) {
         first = false;
         await gate;
       }

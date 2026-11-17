@@ -9,6 +9,7 @@ type Draft = Record<string, unknown> & { modelSettings: { model: string } };
 type CreateInput = {
   cwd: string;
   input: { type: string; text: string }[];
+  config?: { model: string };
   collaborationMode: { mode: string; settings: { model: string; reasoning_effort: string } };
 };
 
@@ -145,6 +146,7 @@ it.each<RendererAgent>(["claude-code", "antigravity", "deepseek-harness", "pi"])
       );
       expect(input).toEqual({
         ...f.originals[0],
+        config: { model: input.collaborationMode.settings.model },
         collaborationMode: {
           mode: "default",
           settings: {
