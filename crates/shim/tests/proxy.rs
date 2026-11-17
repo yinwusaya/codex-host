@@ -405,12 +405,57 @@ fn preserves_failure_stderr_after_descendant_cleanup() {
         let script = format!(
             "{}printf 'first line\\noriginal child failure\\n' >&2; exit 23",
             if with_descendant {
-                "sleep 10 >/dev/null 2>&1 & printf '%s\\n' \"$!\"; "
+                "sleep 10 >/dev/null 2>&1 & printf '%s\\n' \"$!\"; read -r release; "
             } else {
                 ""
             }
         );
-        let output = run_shim(b"", &["-c", &script], &[(STOCK_CODEX_PATH_ENV, "/bin/sh")]);
+        let (output, child_id) = if with_descendant {
+            let directory = temporary_directory();
+            let observations = directory.join("observations");
+            let mut shim = Command::new(shim_path())
+                .args(["-c", &script])
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .env(STOCK_CODEX_PATH_ENV, "/bin/sh")
+                .env("CODEXHOST_TEST_PROCESS_OBSERVATIONS", &observations)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("spawn observed descendant fixture");
+            let mut pid = String::new();
+            std::io::BufRead::read_line(
+                &mut std::io::BufReader::new(shim.stdout.as_mut().unwrap()),
+                &mut pid,
+            )
+            .unwrap();
+            let child_id = pid.trim().parse::<u32>().unwrap();
+            // Two completed scans after child creation prove lineage before the root exits.
+            let count = || fs::metadata(&observations).map_or(0, |metadata| metadata.len());
+            let previous = count();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while count() < previous + 2 {
+                if Instant::now() >= deadline {
+                    let _ = shim.kill();
+                    let _ = shim.wait();
+                    let _ = Command::new("/bin/kill")
+                        .args(["-KILL", &child_id.to_string()])
+                        .status();
+                    panic!("Shim did not observe descendant before root exit");
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            shim.stdin.take().unwrap().write_all(b"release\n").unwrap();
+            let output = shim.wait_with_output().unwrap();
+            fs::remove_dir_all(directory).unwrap();
+            (output, Some(child_id))
+        } else {
+            (
+                run_shim(b"", &["-c", &script], &[(STOCK_CODEX_PATH_ENV, "/bin/sh")]),
+                None,
+            )
+        };
         assert_eq!(
             output.status.code(),
             Some(23),
@@ -418,18 +463,12 @@ fn preserves_failure_stderr_after_descendant_cleanup() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(output.stderr, b"first line\noriginal child failure\n");
-        if with_descendant {
-            let child_id = String::from_utf8(output.stdout)
-                .unwrap()
-                .trim()
-                .parse::<u32>()
-                .unwrap();
+        assert!(output.stdout.is_empty());
+        if let Some(child_id) = child_id {
             assert!(
                 !process_exists(child_id),
                 "descendant PID {child_id} survived failure cleanup"
             );
-        } else {
-            assert!(output.stdout.is_empty());
         }
     }
 }
