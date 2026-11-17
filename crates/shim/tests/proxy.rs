@@ -411,7 +411,12 @@ fn preserves_failure_stderr_after_descendant_cleanup() {
             }
         );
         let output = run_shim(b"", &["-c", &script], &[(STOCK_CODEX_PATH_ENV, "/bin/sh")]);
-        assert_eq!(output.status.code(), Some(23));
+        assert_eq!(
+            output.status.code(),
+            Some(23),
+            "with_descendant={with_descendant}; stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(output.stderr, b"first line\noriginal child failure\n");
         if with_descendant {
             let child_id = String::from_utf8(output.stdout)
