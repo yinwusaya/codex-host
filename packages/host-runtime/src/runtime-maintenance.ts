@@ -19,6 +19,7 @@ import {
   compareSemanticVersions,
   defaultUpdateStateDirectory,
   readRuntimeMetadata,
+  UPSTREAM_RELEASE_REPOSITORY,
 } from "@codexhost/update-manager";
 import { runtimeStatusSchema, type RuntimeStatus } from "@codexhost/shared-contracts";
 
@@ -31,6 +32,7 @@ const UPDATER_WATCH_INTERVAL_MS = 2_000;
 interface Installation {
   version: string;
   distribution: string;
+  repository?: string;
   digest: string;
 }
 
@@ -120,6 +122,15 @@ export class RuntimeMaintenance {
   #sshPending = new Set<string>();
   async setupSsh(input: RemoteSshSetupParams): Promise<RemoteSshSetupResult> {
     if (this.options.remote) throw new Error("SSH installation must run from the local computer");
+    const running = await this.#running;
+    if (
+      (input.action === "install" || input.action === "update") &&
+      running?.repository &&
+      running.repository !== UPSTREAM_RELEASE_REPOSITORY
+    )
+      throw new Error(
+        "Fork SSH installation and upgrades require manual installation from the fork Release",
+      );
     const key = JSON.stringify([input.hostname, input.port, input.identity]);
     if (this.#sshPending.has(key))
       throw new Error("An SSH operation is already running for this connection");
@@ -248,7 +259,11 @@ export class RuntimeMaintenance {
       installedVersion: installed?.version ?? null,
       restartRequired,
       remote: this.options.remote,
-      updateSupported: !!resources && installed?.distribution === "npm",
+      updateSupported:
+        !!resources &&
+        installed?.distribution === "npm" &&
+        (!installed.repository || installed.repository === UPSTREAM_RELEASE_REPOSITORY) &&
+        (!running?.repository || running.repository === UPSTREAM_RELEASE_REPOSITORY),
       update: { ...this.#update },
     };
   }
@@ -299,6 +314,8 @@ export class RuntimeMaintenance {
     if (!installed || compareSemanticVersions(version, installed.version) < 0) {
       throw new Error("The remote installation changed; refresh versions before retrying");
     }
+    if (installed.repository && installed.repository !== UPSTREAM_RELEASE_REPOSITORY)
+      throw new Error("Fork remote upgrades require manual installation from the fork Release");
     const restartOnly = version === installed.version;
     const resources = await this.#resources();
     if (!resources) throw new Error("Remote updater is unavailable");

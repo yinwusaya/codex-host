@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 
-import { parseLatestGitHubRelease, type CodexhostLatestRelease } from "./github-release.js";
-
-const GITHUB_LATEST_RELEASE_ENDPOINT = "repos/BytePioneer-AI/codex-host/releases/latest";
+import {
+  latestReleaseUrl,
+  parseLatestGitHubRelease,
+  type CodexhostLatestRelease,
+} from "./github-release.js";
 const MAX_RELEASE_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_CLI_TIMEOUT_MS = 5_000;
 
@@ -19,6 +21,7 @@ export type GitHubCliRunner = (
 ) => Promise<string>;
 
 export interface GitHubCliReleaseFetchOptions {
+  repository?: string;
   environment?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   signal?: AbortSignal;
@@ -96,7 +99,7 @@ export async function fetchLatestGitHubReleaseWithGitHubCli(
     "Accept: application/vnd.github+json",
     "--header",
     "X-GitHub-Api-Version: 2022-11-28",
-    GITHUB_LATEST_RELEASE_ENDPOINT,
+    latestReleaseUrl(options.repository).slice("https://api.github.com/".length),
   ] as const;
 
   for (const executable of candidates) {
@@ -109,6 +112,7 @@ export async function fetchLatestGitHubReleaseWithGitHubCli(
             ...(options.signal ? { signal: options.signal } : {}),
           }),
         ),
+        options.repository,
       );
     } catch (error) {
       options.signal?.throwIfAborted();

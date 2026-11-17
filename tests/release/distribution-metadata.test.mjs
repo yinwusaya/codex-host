@@ -10,6 +10,22 @@ import {
 } from "../../scripts/release/distribution-metadata.mjs";
 
 describe("release distribution metadata", () => {
+  it("retains the fork repository and immutable source commit", () => {
+    const input = {
+      version: "1.2.3",
+      distribution: "npm",
+      target: "linux-x64",
+      repository: "yinwusaya/codex-host",
+      commit: "a".repeat(40),
+    };
+    expect(createDistributionMetadata(input)).toMatchObject(input);
+    expect(() => createDistributionMetadata({ ...input, commit: "main" })).toThrow("full SHA");
+    expect(() => createDistributionMetadata({ ...input, repository: "../upstream" })).toThrow(
+      "owner/repo",
+    );
+    expect(() => createDistributionMetadata({ ...input, commit: undefined })).toThrow("together");
+  });
+
   it("records the exact release version, channel, and target", async () => {
     expect(
       createDistributionMetadata({

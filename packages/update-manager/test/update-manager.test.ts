@@ -94,6 +94,43 @@ function downloader(bytes: Buffer) {
 }
 
 describe("background update manager", () => {
+  it("downloads and verifies both fork npm tarballs before native handoff", async () => {
+    const root = await temporaryDirectory();
+    const common = await commonOptions(root);
+    const bytes = Buffer.from("fork-tarball-fixture");
+    const source = {
+      url: "https://github.com/yinwusaya/codex-host/releases/download/v1.2.3/fixture.tgz",
+      sha256: sha256(bytes),
+      size: bytes.length,
+    };
+    const options = {
+      ...common,
+      nodePath: common.launcherExecutable,
+      npmCliPath: common.launcherExecutable,
+      npmLauncherPath: common.launcherExecutable,
+      packageRoot: path.join(root, "lib/node_modules/@codexhost/cli-linux-x64"),
+      artifacts: { cli: source, platform: source },
+    };
+    const download = vi.fn(downloader(bytes));
+    const manager = createBackgroundUpdateManager({ download });
+    const prepared = await manager.prepareNpm(options);
+    const request = JSON.parse(await readFile(prepared.requestPath, "utf8"));
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(request.installation.artifacts).toEqual({
+      cli_path: path.join(path.dirname(prepared.requestPath), "cli.tgz"),
+      cli_sha256: source.sha256,
+      platform_path: path.join(path.dirname(prepared.requestPath), "platform.tgz"),
+      platform_sha256: source.sha256,
+    });
+    await expect(readFile(request.installation.artifacts.platform_path)).resolves.toEqual(bytes);
+    await expect(
+      manager.prepareNpm({
+        ...options,
+        artifacts: { cli: source, platform: { ...source, sha256: "00".repeat(32) } },
+      }),
+    ).rejects.toThrow("SHA-256");
+  });
+
   it("prepares and starts an exact npm update request", async () => {
     const root = await temporaryDirectory();
     const common = await commonOptions(root);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import path from "node:path";
 
 import {
   LINUX_GLIBC_BASELINE,
@@ -60,9 +61,9 @@ describe("Linux glibc release baseline", () => {
     const stripped = [];
     stripLinuxDebugInfo({ packageRoot: "/package", strip: (binary) => stripped.push(binary) });
     expect(stripped).toEqual([
-      "/package/bin/codexhost",
-      "/package/libexec/codexhost-shim",
-      "/package/libexec/codexhost-updater",
+      path.join("/package", "bin/codexhost"),
+      path.join("/package", "libexec/codexhost-shim"),
+      path.join("/package", "libexec/codexhost-updater"),
     ]);
   });
 

@@ -48,6 +48,17 @@ pub(crate) struct NpmInstallation {
     pub(crate) npm_launcher_path: PathBuf,
     /// The platform package whose executables Windows must close before npm replaces them.
     pub(crate) npm_package_root: PathBuf,
+    #[serde(default)]
+    pub(crate) artifacts: Option<NpmArtifacts>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NpmArtifacts {
+    pub(crate) cli_path: PathBuf,
+    pub(crate) cli_sha256: String,
+    pub(crate) platform_path: PathBuf,
+    pub(crate) platform_sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,6 +202,15 @@ impl UpdateRequest {
                 require_absolute_file(&npm.npm_cli_path, "npm CLI")?;
                 require_absolute_file(&npm.npm_launcher_path, "npm codexhost launcher")?;
                 require_absolute_path(&npm.npm_package_root, "npm platform package root")?;
+                if let Some(artifacts) = &npm.artifacts {
+                    require_absolute_file(&artifacts.cli_path, "npm CLI artifact")?;
+                    require_absolute_file(&artifacts.platform_path, "npm platform artifact")?;
+                    if !valid_sha256(&artifacts.cli_sha256)
+                        || !valid_sha256(&artifacts.platform_sha256)
+                    {
+                        return Err("npm artifact SHA-256 must be lowercase hexadecimal".into());
+                    }
+                }
             }
             Installation::WindowsInstaller(windows) => {
                 if !cfg!(target_os = "windows") {

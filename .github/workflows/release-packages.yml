@@ -35,6 +35,7 @@ concurrency:
 
 env:
   SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  RELEASE_BRANCH: ${{ github.repository == 'yinwusaya/codex-host' && 'dev' || 'main' }}
 
 jobs:
   prepare:
@@ -55,13 +56,15 @@ jobs:
       ci_run_id: ${{ steps.release.outputs.ci_run_id }}
       ci_run_attempt: ${{ steps.release.outputs.ci_run_attempt }}
       ci_skipped: ${{ steps.release.outputs.ci_skipped }}
+      release_branch: ${{ steps.release.outputs.release_branch }}
+      fork_release: ${{ steps.release.outputs.fork_release }}
     steps:
       # Validation code is from the trusted default branch, not the requested tag.
       - name: Checkout trusted release automation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ env.RELEASE_BRANCH }}
           persist-credentials: false
           sparse-checkout: packages/repository-automation
 
@@ -72,8 +75,8 @@ jobs:
           SKIP_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_ci }}
         with:
           script: |
-            if (context.eventName === 'workflow_dispatch' && context.ref !== `refs/heads/${context.payload.repository.default_branch}`) {
-              throw new Error('Manual release must run from the default branch');
+            if (context.eventName === 'workflow_dispatch' && context.ref !== `refs/heads/${process.env.RELEASE_BRANCH}`) {
+              throw new Error('Manual release must run from the release branch');
             }
             const { pathToFileURL } = await import('node:url');
             const { resolve } = await import('node:path');
@@ -85,6 +88,7 @@ jobs:
               expectedRefSha: context.eventName === 'push' ? context.payload.after : undefined,
               waitForCi: true,
               skipCi: process.env.SKIP_CI === 'true',
+              releaseBranch: process.env.RELEASE_BRANCH,
             });
             for (const [name, value] of Object.entries({
               tag: result.tag, version: result.version, prerelease: result.prerelease,
@@ -92,6 +96,8 @@ jobs:
               tag_object_sha: result.tagObjectSha, automation_sha: result.automationSha,
               ci_run_id: result.ciRunId ?? '', ci_run_attempt: result.ciRunAttempt ?? '',
               ci_skipped: result.ciSkipped,
+              release_branch: result.releaseBranch,
+              fork_release: context.payload.repository.fork === true || context.repo.owner.toLowerCase() !== 'bytepioneer-ai',
             })) core.setOutput(name, value);
             await writeFile('release-notes.md', result.notes);
             const { notes, ...evidence } = result;
@@ -120,6 +126,8 @@ jobs:
       # Skip rust-toolchain.toml component installs (rustfmt/clippy); they conflict with the
       # runner-provided toolchain on Linux ARM64 and the release build does not need them.
       RUSTUP_TOOLCHAIN: 1.97.1
+      CODEXHOST_RELEASE_REPOSITORY: ${{ github.repository }}
+      CODEXHOST_RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -231,7 +239,7 @@ jobs:
 
   publish-npm:
     name: Publish npm registry packages
-    if: github.event_name != 'workflow_dispatch' || !inputs.skip_npm
+    if: needs.prepare.outputs.fork_release != 'true' && (github.event_name != 'workflow_dispatch' || !inputs.skip_npm)
     needs: [prepare, package]
     runs-on: ubuntu-latest
     permissions:
@@ -284,6 +292,7 @@ jobs:
           CI_RUN_ID: ${{ needs.prepare.outputs.ci_run_id }}
           CI_RUN_ATTEMPT: ${{ needs.prepare.outputs.ci_run_attempt }}
           CI_SKIPPED: ${{ needs.prepare.outputs.ci_skipped }}
+          RELEASE_BRANCH: ${{ needs.prepare.outputs.release_branch }}
         with:
           script: |
             const { pathToFileURL } = await import('node:url');
@@ -294,6 +303,7 @@ jobs:
               tagObjectSha: process.env.TAG_OBJECT_SHA,
               ciRunId: process.env.CI_RUN_ID, ciRunAttempt: process.env.CI_RUN_ATTEMPT,
               skipCi: process.env.CI_SKIPPED === 'true',
+              releaseBranch: process.env.RELEASE_BRANCH,
             });
 
       - name: Publish platform packages and meta package
@@ -313,6 +323,7 @@ jobs:
       !cancelled() && needs.prepare.result == 'success' && needs.package.result == 'success' &&
       needs.prepare.outputs.npm_tag != 'test' &&
       (needs.publish-npm.result == 'success' ||
+      (needs.prepare.outputs.fork_release == 'true' && needs.publish-npm.result == 'skipped') ||
       (github.event_name == 'workflow_dispatch' && inputs.skip_npm && needs.publish-npm.result == 'skipped'))
     needs: [prepare, package, publish-npm]
     runs-on: ubuntu-latest
@@ -357,6 +368,7 @@ jobs:
           CI_RUN_ID: ${{ needs.prepare.outputs.ci_run_id }}
           CI_RUN_ATTEMPT: ${{ needs.prepare.outputs.ci_run_attempt }}
           CI_SKIPPED: ${{ needs.prepare.outputs.ci_skipped }}
+          RELEASE_BRANCH: ${{ needs.prepare.outputs.release_branch }}
         with:
           script: |
             const { pathToFileURL } = await import('node:url');
@@ -367,6 +379,7 @@ jobs:
               tagObjectSha: process.env.TAG_OBJECT_SHA,
               ciRunId: process.env.CI_RUN_ID, ciRunAttempt: process.env.CI_RUN_ATTEMPT,
               skipCi: process.env.CI_SKIPPED === 'true',
+              releaseBranch: process.env.RELEASE_BRANCH,
             });
 
       - name: Validate artifacts and publish the release
@@ -376,6 +389,7 @@ jobs:
           PRERELEASE: ${{ needs.prepare.outputs.prerelease == 'true' || (github.event_name == 'workflow_dispatch' && inputs.github_prerelease) }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          FORK_RELEASE: ${{ needs.prepare.outputs.fork_release }}
         run: |
           set -euo pipefail
           expected=(
@@ -384,6 +398,12 @@ jobs:
             "codexhost-${VERSION}-windows-x64.exe"
             "codexhost-${VERSION}-windows-arm64.exe"
           )
+          if [[ "$FORK_RELEASE" == "true" ]]; then
+            expected+=("codexhost-cli-${VERSION}.tgz")
+            for target in macos-arm64 macos-x64 windows-x64 windows-arm64 linux-x64 linux-arm64; do
+              expected+=("codexhost-cli-${VERSION}-${target}.tgz")
+            done
+          fi
           files=()
           for name in "${expected[@]}"; do
             mapfile -d '' matches < <(find release-assets -type f -name "$name" -print0)
@@ -400,6 +420,9 @@ jobs:
           if [[ ! -s release-metadata/release-notes.md ]]; then
             echo "release notes are missing or empty" >&2
             exit 1
+          fi
+          if [[ "$FORK_RELEASE" == "true" ]]; then
+            files+=(release-metadata/release-evidence.json)
           fi
 
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then

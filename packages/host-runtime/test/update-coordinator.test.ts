@@ -40,6 +40,7 @@ it("reports the shared source launch version when packaged update resources are 
     currentVersion: "0.11.0",
     installation: null,
     installationAvailable: false,
+    error: expect.stringContaining("Source builds do not support self-update"),
   });
 });
 afterEach(() => {
@@ -148,6 +149,34 @@ function release(version = "1.2.3"): CodexhostLatestRelease {
 }
 
 describe("Host update coordinator", () => {
+  it("uses fork metadata for discovery and refuses missing fork npm assets", async () => {
+    const fixture = await npmFixture("linux");
+    const metadataPath = path.join(
+      path.dirname(fixture.hostRuntimePath),
+      "codexhost-distribution.json",
+    );
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ ...metadata, repository: "yinwusaya/codex-host", commit: "a".repeat(40) }),
+    );
+    discovery.cli.mockResolvedValue(null);
+    discovery.http.mockResolvedValue(release());
+    const coordinator = createHostUpdateCoordinator({
+      ...fixture,
+      platform: "linux",
+      architecture: "x64",
+    });
+    await expect(coordinator.check()).resolves.toMatchObject({ installationAvailable: false });
+    expect(discovery.cli).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: "yinwusaya/codex-host" }),
+    );
+    expect(discovery.http).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: "yinwusaya/codex-host" }),
+    );
+    await expect(coordinator.start()).rejects.toThrow("exactly one");
+  });
+
   it.each(["darwin", "win32", "linux"] as const)(
     "prepares one service operation for native handoff on %s without Desktop context",
     async (platform) => {

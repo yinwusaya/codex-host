@@ -66,7 +66,7 @@ fn wait_for_launcher_exit(request: &UpdateRequest) -> Result<(), Box<dyn Error>>
 }
 
 fn apply(request_path: &Path) -> Result<(), Box<dyn Error>> {
-    let request = UpdateRequest::parse(request_path)?;
+    let mut request = UpdateRequest::parse(request_path)?;
     let _independent = request
         .service_managed
         .then(codexhost_platform::register_independent_service)
@@ -78,7 +78,7 @@ fn apply(request_path: &Path) -> Result<(), Box<dyn Error>> {
         stopping_started = true;
         service_stop_output = services::stop(&request)?;
         write_status(&request, "installing", None, service_stop_output.as_deref())?;
-        install(&request)?;
+        install(&mut request)?;
         write_status(&request, "restarting", None, service_stop_output.as_deref())?;
         restart::restore(&request, Some(&request.version))?;
         write_status(&request, "succeeded", None, service_stop_output.as_deref())?;
@@ -168,6 +168,7 @@ mod tests {
                 npm_cli_path: wrong_executable.clone(),
                 npm_launcher_path: wrong_executable,
                 npm_package_root: directory.clone(),
+                artifacts: None,
             }),
         };
         let error = wait_for_launcher_exit(&request).unwrap_err();

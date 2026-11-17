@@ -9,7 +9,11 @@ import { requireSemanticVersion } from "./status.js";
 export async function readRuntimeMetadata(
   entryPath: string,
   environment: NodeJS.ProcessEnv = process.env,
-): Promise<{ version: string; distribution: "development" | "npm" | "installer" }> {
+): Promise<{
+  version: string;
+  distribution: "development" | "npm" | "installer";
+  repository?: string;
+}> {
   const directory = path.dirname(entryPath);
   try {
     return parseDistributionMetadata(

@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Personal Fork Releases
+
+This checkout belongs to `yinwusaya/codex-host`; personal development and release candidates live on `dev`. Read `docs/operations/fork-releases.md` before preparing a release or changing update behavior. The upstream release skill's `main` and npm publication instructions do not apply to this fork: use exact `dev` push CI and GitHub Release assets, never publish `@codexhost/*` to the upstream npm registry. Publishing tags still requires explicit Release Notes approval. Do not change running machines or the G7 source-sync timer as part of a code-only change.
+
 ## Product Intent
 
 `codexhost` runs external Agent Harnesses as independent Threads inside Codex Desktop, preserving the official shell and native Codex path. Integrate each Harness through its native interface; preserve its actual capabilities and semantics rather than inventing equivalent-looking Host behavior.

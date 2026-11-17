@@ -37,7 +37,8 @@ function cargoWorkspaceVersion(source) {
   return versions[0];
 }
 
-export async function readReleaseMetadata({ root, tag, expectedRefSha }) {
+export async function readReleaseMetadata({ root, tag, expectedRefSha, releaseBranch = "main" }) {
+  if (!["main", "dev"].includes(releaseBranch)) throw new Error("unsupported release branch");
   if (typeof tag !== "string" || !tag.startsWith("v"))
     throw new Error("release tag must be v<semver>");
   const version = validateReleaseVersion(tag.slice(1));
@@ -56,7 +57,7 @@ export async function readReleaseMetadata({ root, tag, expectedRefSha }) {
   if (expectedRefSha && ![sha, tagObjectSha].includes(expectedRefSha))
     throw new Error("release tag moved since the triggering event");
   // Read data from the tag; never execute tag-selected code during preparation.
-  await git("merge-base", "--is-ancestor", sha, "refs/remotes/origin/main");
+  await git("merge-base", "--is-ancestor", sha, `refs/remotes/origin/${releaseBranch}`);
   const [packageSource, cargoSource, lockSource, notes, automationSha] = await Promise.all([
     git("show", `${sha}:package.json`),
     git("show", `${sha}:Cargo.toml`),
@@ -87,14 +88,17 @@ export async function readReleaseMetadata({ root, tag, expectedRefSha }) {
     tagObjectSha,
     notes,
     automationSha: automationSha.trim(),
+    releaseBranch,
     prerelease: Boolean(prereleaseId),
     npmTag: !prereleaseId ? "latest" : /^test(?:\.|$)/u.test(prereleaseId) ? "test" : "next",
   };
 }
 
-export function assertReleaseCi({ run, jobs }, sha) {
-  if (!run || run.head_sha !== sha || run.event !== "push" || run.head_branch !== "main") {
-    throw new Error("release requires CI evidence from a main push at the exact release commit");
+export function assertReleaseCi({ run, jobs }, sha, releaseBranch = "main") {
+  if (!run || run.head_sha !== sha || run.event !== "push" || run.head_branch !== releaseBranch) {
+    throw new Error(
+      `release requires CI evidence from a ${releaseBranch} push at the exact release commit`,
+    );
   }
   if (run.status !== "completed" || run.conclusion !== "success") {
     throw new Error(`release CI is not successful: ${run.conclusion ?? run.status}`);
@@ -116,6 +120,7 @@ export async function waitForReleaseCi({
   github,
   repo,
   sha,
+  releaseBranch = "main",
   timeoutMs = RELEASE_CI_WAIT_TIMEOUT_MS,
   pollIntervalMs = RELEASE_CI_POLL_INTERVAL_MS,
   now = Date.now,
@@ -124,8 +129,8 @@ export async function waitForReleaseCi({
 }) {
   const deadline = now() + timeoutMs;
   for (;;) {
-    const ci = await read({ github, repo, sha, release: true });
-    if (ci.run?.status === "completed") return assertReleaseCi(ci, sha);
+    const ci = await read({ github, repo, sha, release: true, releaseBranch });
+    if (ci.run?.status === "completed") return assertReleaseCi(ci, sha, releaseBranch);
     const remaining = deadline - now();
     if (remaining <= 0) {
       throw new Error(`timed out waiting for release CI at the exact release commit: ${sha}`);
@@ -142,14 +147,16 @@ export async function resolveRelease({
   expectedRefSha,
   waitForCi = false,
   skipCi = false,
+  releaseBranch = "main",
 }) {
-  const metadata = await readReleaseMetadata({ root, tag, expectedRefSha });
+  const metadata = await readReleaseMetadata({ root, tag, expectedRefSha, releaseBranch });
   if (skipCi === true) return { ...metadata, ciSkipped: true };
   const evidence = waitForCi
-    ? await waitForReleaseCi({ github, repo, sha: metadata.sha })
+    ? await waitForReleaseCi({ github, repo, sha: metadata.sha, releaseBranch })
     : assertReleaseCi(
-        await readCi({ github, repo, sha: metadata.sha, release: true }),
+        await readCi({ github, repo, sha: metadata.sha, release: true, releaseBranch }),
         metadata.sha,
+        releaseBranch,
       );
   return { ...metadata, ...evidence, ciSkipped: false };
 }
@@ -163,7 +170,9 @@ export async function verifyRelease({
   ciRunId,
   ciRunAttempt,
   skipCi = false,
+  releaseBranch = "main",
 }) {
+  if (!["main", "dev"].includes(releaseBranch)) throw new Error("unsupported release branch");
   validateReleaseVersion(tag?.startsWith("v") ? tag.slice(1) : "");
   if (!SHA.test(sha) || !SHA.test(tagObjectSha))
     throw new Error("release verification requires full SHAs");
@@ -173,17 +182,17 @@ export async function verifyRelease({
   const { data: comparison } = await github.rest.repos.compareCommits({
     ...repo,
     base: sha,
-    head: "main",
+    head: releaseBranch,
   });
   if (
     comparison.merge_base_commit?.sha !== sha ||
     !["ahead", "identical"].includes(comparison.status)
   ) {
-    throw new Error("release commit is no longer on main");
+    throw new Error(`release commit is no longer on ${releaseBranch}`);
   }
   if (skipCi === true) return { ciSkipped: true };
-  const ci = await readCi({ github, repo, sha, release: true });
-  const evidence = assertReleaseCi(ci, sha);
+  const ci = await readCi({ github, repo, sha, release: true, releaseBranch });
+  const evidence = assertReleaseCi(ci, sha, releaseBranch);
   if (
     String(evidence.ciRunId) !== String(ciRunId) ||
     String(evidence.ciRunAttempt) !== String(ciRunAttempt)

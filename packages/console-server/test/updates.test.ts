@@ -56,6 +56,30 @@ async function npmLayout(platform: NodeJS.Platform = process.platform) {
 }
 
 describe("console updates", () => {
+  it("refuses fork npm updates without both verified fork assets", async () => {
+    const { target, environment } = await npmLayout();
+    if (!target.distribution) throw new Error("fixture has no distribution metadata");
+    target.distribution = {
+      ...target.distribution,
+      repository: "yinwusaya/codex-host",
+      commit: "a".repeat(40),
+    };
+    const updates = createConsoleUpdates({
+      onHandedOff: vi.fn(),
+      environment,
+      stateDirectory: path.join(root, "state"),
+      fetchLatest: async () => ({
+        ...release,
+        releaseNotesUrl: "https://github.com/yinwusaya/codex-host/releases/tag/v1.1.0",
+      }),
+    });
+    await expect(updates.check(target)).resolves.toMatchObject({
+      updateAvailable: true,
+      installationAvailable: false,
+      error: "The latest GitHub Release has no verified asset for this installation",
+    });
+    await expect(updates.start(target)).rejects.toThrow("must contain exactly one");
+  });
   it("reports an available update from distribution metadata alone", async () => {
     const { target, environment } = await npmLayout();
     const updates = createConsoleUpdates({

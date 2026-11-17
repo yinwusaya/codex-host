@@ -17,6 +17,8 @@ import {
   resolveInstalledUpdateContext,
   readRuntimeMetadata,
   selectInstallerReleaseArtifact,
+  selectNpmReleaseArtifacts,
+  UPSTREAM_RELEASE_REPOSITORY,
   type BackgroundUpdateManager,
   type BackgroundUpdateStatus,
   type CodexhostLatestRelease,
@@ -78,14 +80,17 @@ export function createHostUpdateCoordinator(
   const fetchLatest: (signal?: AbortSignal) => Promise<CodexhostLatestRelease> =
     options.fetchLatest ??
     (async (signal?: AbortSignal) => {
+      const { metadata } = await installedContext();
+      const repository = metadata.repository ?? UPSTREAM_RELEASE_REPOSITORY;
       const timeoutSignal = AbortSignal.timeout(15_000);
       const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
       const authenticated = await fetchLatestGitHubReleaseWithGitHubCli({
         ...(options.environment ? { environment: options.environment } : {}),
         platform,
+        repository,
         signal: requestSignal,
       });
-      return authenticated ?? fetchLatestGitHubRelease({ signal: requestSignal });
+      return authenticated ?? fetchLatestGitHubRelease({ repository, signal: requestSignal });
     });
   let candidate: CodexhostLatestRelease | null = null;
 
@@ -108,11 +113,18 @@ export function createHostUpdateCoordinator(
     context: InstalledUpdateContext,
     release: CodexhostLatestRelease,
   ): Promise<boolean> {
-    if (context.installation.kind === "npm") return true;
     const target = context.metadata.target;
-    if (target === "linux-x64" || target === "linux-arm64") return false;
     try {
-      selectInstallerReleaseArtifact(release, target);
+      if (context.installation.kind === "npm") {
+        if (
+          context.metadata.repository &&
+          context.metadata.repository !== UPSTREAM_RELEASE_REPOSITORY
+        )
+          selectNpmReleaseArtifacts(release, target, context.metadata.repository);
+        return true;
+      }
+      if (target === "linux-x64" || target === "linux-arm64") return false;
+      selectInstallerReleaseArtifact(release, target, context.metadata.repository);
       return true;
     } catch {
       return false;
@@ -140,7 +152,10 @@ export function createHostUpdateCoordinator(
           releaseNotes: null,
           releaseNotesUrl: null,
           status: null,
-          error: boundedError(error),
+          error:
+            runtime?.distribution === "development"
+              ? "Source builds do not support self-update. Update the checkout and rebuild, or install a fork release."
+              : boundedError(error),
         };
       }
       const status = await latestStatus(context);
@@ -233,6 +248,16 @@ export function createHostUpdateCoordinator(
               prepared = await manager.prepareNpm({
                 ...context.installation.options,
                 version: release.version,
+                ...(context.metadata.repository &&
+                context.metadata.repository !== UPSTREAM_RELEASE_REPOSITORY
+                  ? {
+                      artifacts: selectNpmReleaseArtifacts(
+                        release,
+                        context.metadata.target,
+                        context.metadata.repository,
+                      ),
+                    }
+                  : {}),
                 onPrepared,
               });
             } else {
@@ -240,7 +265,11 @@ export function createHostUpdateCoordinator(
               if (target === "linux-x64" || target === "linux-arm64") {
                 throw new Error("Linux installer updates are unsupported");
               }
-              const artifact = selectInstallerReleaseArtifact(release, target).source;
+              const artifact = selectInstallerReleaseArtifact(
+                release,
+                target,
+                context.metadata.repository,
+              ).source;
               prepared =
                 context.installation.kind === "windows-installer"
                   ? await manager.prepareWindowsInstaller({

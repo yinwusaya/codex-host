@@ -3,11 +3,26 @@ import { requireSemanticVersion } from "./status.js";
 
 export const CODEXHOST_LATEST_RELEASE_URL =
   "https://api.github.com/repos/BytePioneer-AI/codex-host/releases/latest";
+export const UPSTREAM_RELEASE_REPOSITORY = "BytePioneer-AI/codex-host";
+
+export function requireReleaseRepository(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/u.test(value)
+  ) {
+    throw new Error("release repository must be owner/repo");
+  }
+  return value;
+}
+
+export function latestReleaseUrl(repository = UPSTREAM_RELEASE_REPOSITORY): string {
+  return `https://api.github.com/repos/${requireReleaseRepository(repository)}/releases/latest`;
+}
 
 const SHA256_DIGEST_PATTERN = /^sha256:([0-9a-f]{64})$/u;
-const RELEASE_NOTES_URL_PATTERN =
-  /^https:\/\/github\.com\/BytePioneer-AI\/codex-host\/releases\/tag\/(v[0-9A-Za-z.+-]+)$/u;
-const DOWNLOAD_URL_PREFIX = "https://github.com/BytePioneer-AI/codex-host/releases/download/";
+function downloadUrlPrefix(repository: string): string {
+  return `https://github.com/${requireReleaseRepository(repository)}/releases/download/`;
+}
 
 export type InstallerReleaseTarget = "macos-arm64" | "macos-x64" | "windows-x64" | "windows-arm64";
 export type ReleaseTarget = InstallerReleaseTarget | "linux-x64" | "linux-arm64";
@@ -32,6 +47,7 @@ export interface SelectedReleaseArtifact {
 }
 
 export interface GitHubReleaseFetchOptions {
+  repository?: string;
   fetch?: typeof fetch;
   signal?: AbortSignal;
 }
@@ -43,7 +59,7 @@ function record(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function releaseAsset(value: unknown): CodexhostReleaseAsset {
+function releaseAsset(value: unknown, repository: string): CodexhostReleaseAsset {
   const asset = record(value, "GitHub Release asset");
   if (
     typeof asset.name !== "string" ||
@@ -54,7 +70,7 @@ function releaseAsset(value: unknown): CodexhostReleaseAsset {
     (asset.size as number) > 2 * 1024 * 1024 * 1024 ||
     (asset.digest != null && typeof asset.digest !== "string") ||
     typeof asset.browser_download_url !== "string" ||
-    !asset.browser_download_url.startsWith(DOWNLOAD_URL_PREFIX)
+    !asset.browser_download_url.startsWith(downloadUrlPrefix(repository))
   ) {
     throw new Error("GitHub Release asset is invalid");
   }
@@ -70,7 +86,11 @@ function releaseAsset(value: unknown): CodexhostReleaseAsset {
   };
 }
 
-export function parseLatestGitHubRelease(value: unknown): CodexhostLatestRelease {
+export function parseLatestGitHubRelease(
+  value: unknown,
+  repository = UPSTREAM_RELEASE_REPOSITORY,
+): CodexhostLatestRelease {
+  requireReleaseRepository(repository);
   const release = record(value, "GitHub latest Release");
   if (
     release.draft !== false ||
@@ -84,8 +104,7 @@ export function parseLatestGitHubRelease(value: unknown): CodexhostLatestRelease
     throw new Error("GitHub latest Release is invalid");
   }
   const version = requireSemanticVersion(release.tag_name.slice(1));
-  const notesMatch = RELEASE_NOTES_URL_PATTERN.exec(release.html_url);
-  if (!notesMatch || notesMatch[1] !== release.tag_name) {
+  if (release.html_url !== `https://github.com/${repository}/releases/tag/${release.tag_name}`) {
     throw new Error("GitHub Release notes URL does not match its tag");
   }
   const releaseNotes =
@@ -96,7 +115,7 @@ export function parseLatestGitHubRelease(value: unknown): CodexhostLatestRelease
     version,
     releaseNotes,
     releaseNotesUrl: release.html_url,
-    assets: Object.freeze(release.assets.map(releaseAsset)),
+    assets: Object.freeze(release.assets.map((asset) => releaseAsset(asset, repository))),
   });
 }
 
@@ -104,7 +123,7 @@ export async function fetchLatestGitHubRelease(
   options: GitHubReleaseFetchOptions = {},
 ): Promise<CodexhostLatestRelease> {
   const fetchImpl = options.fetch ?? fetch;
-  const response = await fetchImpl(CODEXHOST_LATEST_RELEASE_URL, {
+  const response = await fetchImpl(latestReleaseUrl(options.repository), {
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "codexhost-updater",
@@ -115,7 +134,7 @@ export async function fetchLatestGitHubRelease(
   });
   if (!response.ok)
     throw new Error(`GitHub latest Release request failed with HTTP ${response.status}`);
-  return parseLatestGitHubRelease(await response.json());
+  return parseLatestGitHubRelease(await response.json(), options.repository);
 }
 
 function numericIdentifiers(value: string): [number, number, number] {
@@ -167,8 +186,33 @@ export function expectedInstallerAssetName(
 export function selectInstallerReleaseArtifact(
   release: CodexhostLatestRelease,
   target: InstallerReleaseTarget,
+  repository = UPSTREAM_RELEASE_REPOSITORY,
 ): SelectedReleaseArtifact {
   const name = expectedInstallerAssetName(release.version, target);
+  return selectReleaseArtifact(release, name, repository);
+}
+
+export function selectNpmReleaseArtifacts(
+  release: CodexhostLatestRelease,
+  target: ReleaseTarget,
+  repository: string,
+): { cli: ArtifactSource; platform: ArtifactSource } {
+  requireSemanticVersion(release.version);
+  return {
+    cli: selectReleaseArtifact(release, `codexhost-cli-${release.version}.tgz`, repository).source,
+    platform: selectReleaseArtifact(
+      release,
+      `codexhost-cli-${release.version}-${target}.tgz`,
+      repository,
+    ).source,
+  };
+}
+
+function selectReleaseArtifact(
+  release: CodexhostLatestRelease,
+  name: string,
+  repository: string,
+): SelectedReleaseArtifact {
   const matches = release.assets.filter((asset) => asset.name === name);
   if (matches.length !== 1) throw new Error(`GitHub Release must contain exactly one ${name}`);
   const asset = matches[0];
@@ -176,8 +220,8 @@ export function selectInstallerReleaseArtifact(
   const digest = asset.digest === null ? null : SHA256_DIGEST_PATTERN.exec(asset.digest);
   const sha256 = digest?.[1];
   if (!sha256) throw new Error(`GitHub Release asset ${name} has no valid SHA-256 digest`);
-  const expectedPrefix = `${DOWNLOAD_URL_PREFIX}v${release.version}/`;
-  if (!asset.downloadUrl.startsWith(expectedPrefix) || !asset.downloadUrl.endsWith(`/${name}`)) {
+  const expectedUrl = `${downloadUrlPrefix(repository)}v${release.version}/${name}`;
+  if (asset.downloadUrl !== expectedUrl) {
     throw new Error(`GitHub Release asset ${name} has an unexpected download URL`);
   }
   return Object.freeze({

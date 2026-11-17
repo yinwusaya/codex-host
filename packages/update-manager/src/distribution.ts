@@ -8,7 +8,7 @@ import type {
   WindowsInstallerUpdateOptions,
 } from "./update-manager.js";
 import { requireSemanticVersion } from "./status.js";
-import type { ReleaseTarget } from "./github-release.js";
+import { requireReleaseRepository, type ReleaseTarget } from "./github-release.js";
 
 export const UPDATE_RUNTIME_ENV = Object.freeze({
   launcherPid: "CODEXHOST_LAUNCHER_PID",
@@ -28,6 +28,8 @@ export interface DistributionMetadata {
   version: string;
   distribution: "npm" | "installer";
   target: ReleaseTarget;
+  repository?: string;
+  commit?: string;
 }
 
 export interface InstalledUpdateContext {
@@ -56,7 +58,7 @@ function object(value: unknown, label: string): Record<string, unknown> {
 
 export function parseDistributionMetadata(value: unknown): DistributionMetadata {
   const metadata = object(value, "distribution metadata");
-  const allowed = ["distribution", "schemaVersion", "target", "version"];
+  const allowed = ["distribution", "schemaVersion", "target", "version", "repository", "commit"];
   if (Object.keys(metadata).some((key) => !allowed.includes(key))) {
     throw new Error("distribution metadata contains unknown fields");
   }
@@ -75,11 +77,20 @@ export function parseDistributionMetadata(value: unknown): DistributionMetadata 
   ) {
     throw new Error("distribution metadata is invalid");
   }
+  if (metadata.repository !== undefined || metadata.commit !== undefined) {
+    requireReleaseRepository(metadata.repository);
+    if (typeof metadata.commit !== "string" || !/^[a-f0-9]{40}$/u.test(metadata.commit)) {
+      throw new Error("distribution commit must be a full SHA");
+    }
+  }
   return {
     schemaVersion: 1,
     version: requireSemanticVersion(metadata.version),
     distribution: metadata.distribution,
     target: metadata.target as ReleaseTarget,
+    ...(metadata.repository === undefined
+      ? {}
+      : { repository: metadata.repository as string, commit: metadata.commit as string }),
   };
 }
 

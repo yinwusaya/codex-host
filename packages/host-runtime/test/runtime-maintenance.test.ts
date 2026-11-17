@@ -66,6 +66,35 @@ function helperStartedBy(statusPath: string, targetVersion: string, updaterPid: 
   return starter;
 }
 describe("runtime maintenance", () => {
+  it("does not replace a fork runtime through registry-based SSH installation or update", async () => {
+    const f = await fixture();
+    const metadataPath = path.join(path.dirname(f.runtimePath), "codexhost-distribution.json");
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+    await writeFile(
+      metadataPath,
+      JSON.stringify({
+        ...metadata,
+        repository: "yinwusaya/codex-host",
+        commit: "a".repeat(40),
+      }),
+    );
+    const control = new RuntimeMaintenance(f.control.options);
+    for (const action of ["install", "update"] as const) {
+      await expect(
+        control.setupSsh({
+          hostname: "fixture.invalid",
+          port: null,
+          identity: null,
+          action,
+          version: "0.12.0",
+        }),
+      ).rejects.toThrow("manual installation from the fork Release");
+    }
+    const remote = new RuntimeMaintenance({ ...control.options, remote: true });
+    expect((await remote.status()).updateSupported).toBe(false);
+    await expect(remote.start("0.12.0")).rejects.toThrow("Remote update requires");
+    expect(spawn).not.toHaveBeenCalled();
+  });
   it("reads the workspace version for source launches without distribution metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "codexhost-source-"));
     directories.push(root);

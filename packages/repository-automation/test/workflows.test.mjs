@@ -75,7 +75,9 @@ describe("workflow and form contracts", () => {
   it("allows explicit installer-only recovery without bypassing release prerequisites", async () => {
     const workflow = await read(".github/workflows/release-packages.yml");
     expect(workflow).toContain("skip_npm:");
-    expect(workflow).toContain("if: github.event_name != 'workflow_dispatch' || !inputs.skip_npm");
+    expect(workflow).toContain(
+      "if: needs.prepare.outputs.fork_release != 'true' && (github.event_name != 'workflow_dispatch' || !inputs.skip_npm)",
+    );
     const publishRelease = workflow.slice(workflow.indexOf("  publish-release:"));
     expect(publishRelease).toContain("needs.prepare.result == 'success'");
     expect(publishRelease).toContain("needs.package.result == 'success'");
@@ -84,6 +86,20 @@ describe("workflow and form contracts", () => {
       "github.event_name == 'workflow_dispatch' && inputs.skip_npm && needs.publish-npm.result == 'skipped'",
     );
     expect(publishRelease).toContain("await verifyRelease(");
+  });
+
+  it("releases the personal dev branch without publishing upstream npm packages", async () => {
+    const workflow = await read(".github/workflows/release-packages.yml");
+    expect(workflow).toContain("github.repository == 'yinwusaya/codex-host' && 'dev' || 'main'");
+    expect(workflow).toContain("ref: ${{ env.RELEASE_BRANCH }}");
+    expect(workflow).toContain("releaseBranch: process.env.RELEASE_BRANCH");
+    expect(workflow).toContain("CODEXHOST_RELEASE_REPOSITORY: ${{ github.repository }}");
+    expect(workflow).toContain("CODEXHOST_RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}");
+    expect(workflow).toContain('expected+=("codexhost-cli-${VERSION}-${target}.tgz")');
+    expect(workflow).toContain(
+      "needs.prepare.outputs.fork_release == 'true' && needs.publish-npm.result == 'skipped'",
+    );
+    expect(await read(".github/workflows/ci.yml")).toMatch(/branches:\s+- main\s+- dev/u);
   });
 
   it("limits CI skipping to explicit manual input and carries it through publication checks", async () => {

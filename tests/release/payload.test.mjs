@@ -110,10 +110,10 @@ describe("release Payload", () => {
       const paths = await validatePayload({ payloadRoot: root, target, root: "/repo/source" });
       expect(paths).toEqual(expectedPayloadPaths(target));
       expect(paths).toHaveLength(
-        33 + preinstalledHarnessPluginPaths().length + expectedWebPaths(target).length,
+        34 + preinstalledHarnessPluginPaths().length + expectedWebPaths(target).length,
       );
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toHaveLength(
-        35 +
+        36 +
           preinstalledHarnessPluginPaths().length +
           expectedWebPaths(releaseTarget("windows-x64")).length,
       );
@@ -163,8 +163,11 @@ describe("release Payload", () => {
       await createPayload(root, target);
       await rm(path.join(root, "app/renderer-extension.js"));
       await symlink(
-        path.join(root, "app/host-runtime.mjs"),
+        process.platform === "win32"
+          ? path.join(root, "app")
+          : path.join(root, "app/host-runtime.mjs"),
         path.join(root, "app/renderer-extension.js"),
+        process.platform === "win32" ? "junction" : "file",
       );
       await expect(
         validatePayload({ payloadRoot: root, target, root: "/repo/source" }),
@@ -219,6 +222,10 @@ describe("release Payload", () => {
         await readFile(path.join(output, "licenses/OpenCode-v2-Client-LICENSE.txt"), "utf8"),
       ).toContain("MIT License");
       expect(notice).toContain("licenses/OpenCode-SDK-LICENSE.txt");
+      expect(notice).toContain("License text: licenses/yaml-LICENSE.txt");
+      expect(await readFile(path.join(output, "licenses/yaml-LICENSE.txt"), "utf8")).toBe(
+        await readFile(path.join(root, "node_modules/yaml/LICENSE"), "utf8"),
+      );
       expect(license).toContain("Copyright (c) 2025 opencode");
       expect(notice).toContain("licenses/DesktopScreenshot-NOTICES.txt");
       const nativeNotices = await readFile(

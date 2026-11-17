@@ -50,6 +50,23 @@ import { hostReleaseTargetId, releaseTarget } from "../../scripts/release/target
 const launcherStdout =
   "Shared Host stopped; interrupted 2 running task(s)\nstartup:" + "x".repeat(1024 * 1024);
 
+it("installs fork platform dependencies from the same GitHub release, not npm", () => {
+  const repository = "yinwusaya/codex-host";
+  const manifest = createNpmMetaPackageManifest({ version: "1.2.3", repository });
+  expect(Object.values(manifest.optionalDependencies)).toHaveLength(6);
+  for (const source of Object.values(manifest.optionalDependencies)) {
+    expect(source).toMatch(
+      /^https:\/\/github\.com\/yinwusaya\/codex-host\/releases\/download\/v1\.2\.3\/codexhost-cli-1\.2\.3-(?:macos|windows|linux)-(?:x64|arm64)\.tgz$/u,
+    );
+  }
+  expect(createNpmMetaReadme({ version: "1.2.3", repository })).toContain(
+    "npm install -g https://github.com/yinwusaya/codex-host/releases/download/v1.2.3/codexhost-cli-1.2.3.tgz",
+  );
+  const launcher = createNpmBinLauncherSource({ version: "1.2.3", repository });
+  expect(launcher).not.toContain("npm install -g @codexhost/cli@");
+  expect(launcher).toContain('const repositoryUrl = "https://github.com/yinwusaya/codex-host"');
+});
+
 async function temporaryDirectory() {
   return mkdtemp(path.join(os.tmpdir(), "codexhost-npm-package-"));
 }
@@ -451,6 +468,10 @@ describe("npm package release", () => {
         await readFile(path.join(output, "licenses/OpenCode-v2-Client-LICENSE.txt"), "utf8"),
       ).toContain("MIT License");
       expect(notice).toContain("licenses/OpenCode-SDK-LICENSE.txt");
+      expect(notice).toContain("License text: licenses/yaml-LICENSE.txt");
+      expect(await readFile(path.join(output, "licenses/yaml-LICENSE.txt"), "utf8")).toBe(
+        await readFile(path.join(root, "node_modules/yaml/LICENSE"), "utf8"),
+      );
       expect(license).toContain("Copyright (c) 2025 opencode");
       expect(notice).toContain("licenses/DesktopScreenshot-NOTICES.txt");
       const nativeNotices = await readFile(

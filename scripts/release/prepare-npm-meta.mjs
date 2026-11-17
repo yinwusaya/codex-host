@@ -19,7 +19,7 @@ export function expectedNpmMetaPackagePaths() {
   return ["README.md", "bin/codexhost.js", "package.json"];
 }
 
-export function createNpmMetaPackageManifest({ version }) {
+export function createNpmMetaPackageManifest({ version, repository }) {
   return {
     name: NPM_PACKAGE_NAME,
     version,
@@ -29,12 +29,17 @@ export function createNpmMetaPackageManifest({ version }) {
     files: ["bin/**", "README.md"],
     engines: { node: NPM_NODE_ENGINE },
     optionalDependencies: Object.fromEntries(
-      Object.values(NPM_PLATFORM_PACKAGE_NAMES).map((packageName) => [packageName, version]),
+      Object.entries(NPM_PLATFORM_PACKAGE_NAMES).map(([target, packageName]) => [
+        packageName,
+        repository && repository !== "BytePioneer-AI/codex-host"
+          ? `https://github.com/${repository}/releases/download/v${version}/codexhost-cli-${version}-${target}.tgz`
+          : version,
+      ]),
     ),
     keywords: ["codex", "codexhost", "pi", "claude-code", "agent", "harness"],
     repository: {
       type: "git",
-      url: "git+https://github.com/BytePioneer-AI/codex-host.git",
+      url: `git+https://github.com/${repository ?? "BytePioneer-AI/codex-host"}.git`,
     },
     bugs: { url: "https://github.com/BytePioneer-AI/codex-host/issues" },
     homepage: "https://github.com/BytePioneer-AI/codex-host#readme",
@@ -42,7 +47,7 @@ export function createNpmMetaPackageManifest({ version }) {
   };
 }
 
-export function createNpmMetaReadme({ version }) {
+export function createNpmMetaReadme({ version, repository }) {
   return `# ${NPM_PACKAGE_NAME}
 
 ${NPM_PACKAGE_DESCRIPTION}
@@ -50,7 +55,7 @@ ${NPM_PACKAGE_DESCRIPTION}
 ## Install
 
 \`\`\`bash
-npm install -g ${NPM_PACKAGE_NAME}@${version}
+npm install -g ${repository && repository !== "BytePioneer-AI/codex-host" ? `https://github.com/${repository}/releases/download/v${version}/codexhost-cli-${version}.tgz` : `${NPM_PACKAGE_NAME}@${version}`}
 \`\`\`
 
 npm automatically installs the matching macOS, Windows, or Linux platform package. ${NPM_NODE_REQUIREMENT} is required. Official ChatGPT/Codex Desktop is only required for the Desktop interface; Web is included and works without it.
@@ -142,23 +147,29 @@ export async function validateNpmMetaPackage({ packageRoot }) {
 
 export async function prepareNpmMetaPackage({ version, root = repositoryRoot }) {
   const packageVersion = await resolveNpmPackageVersion(root, version);
+  const repository = process.env.CODEXHOST_RELEASE_REPOSITORY;
+  if (
+    repository !== undefined &&
+    !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/u.test(repository)
+  )
+    throw new Error("release repository must be owner/repo");
   const outputRoot = path.join(root, "build", "npm", packageVersion, "meta");
   const packageRoot = path.join(outputRoot, "package");
   await rm(packageRoot, { recursive: true, force: true });
   await mkdir(path.join(packageRoot, "bin"), { recursive: true });
   await writeFile(
     path.join(packageRoot, "bin", "codexhost.js"),
-    createNpmBinLauncherSource({ version: packageVersion }),
+    createNpmBinLauncherSource({ version: packageVersion, repository }),
     "utf8",
   );
   await chmod(path.join(packageRoot, "bin", "codexhost.js"), 0o755);
   await writeFile(
     path.join(packageRoot, "package.json"),
-    `${JSON.stringify(createNpmMetaPackageManifest({ version: packageVersion }), null, 2)}\n`,
+    `${JSON.stringify(createNpmMetaPackageManifest({ version: packageVersion, repository }), null, 2)}\n`,
   );
   await writeFile(
     path.join(packageRoot, "README.md"),
-    createNpmMetaReadme({ version: packageVersion }),
+    createNpmMetaReadme({ version: packageVersion, repository }),
   );
   await validateNpmMetaPackage({ packageRoot });
   return { outputRoot, packageRoot, version: packageVersion };

@@ -101,7 +101,8 @@ describe("platform packagers", () => {
     expect(publishRelease).toContain('"codexhost-${VERSION}-windows-arm64.exe"');
     expect(publishRelease).toContain('"codexhost-${VERSION}-macos-x64.dmg"');
     expect(publishRelease).toContain('"codexhost-${VERSION}-macos-arm64.dmg"');
-    expect(publishRelease).not.toContain('"codexhost-cli-${VERSION}');
+    expect(publishRelease).toContain('if [[ "$FORK_RELEASE" == "true" ]]; then');
+    expect(publishRelease).toContain('expected+=("codexhost-cli-${VERSION}.tgz")');
     expect(workflow).not.toContain("softprops/action-gh-release");
     expect(workflow).not.toContain("codexhost-*.sha256");
     expect(workflow).not.toContain("checksums.txt");

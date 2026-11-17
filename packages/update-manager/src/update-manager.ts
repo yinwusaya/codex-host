@@ -45,6 +45,7 @@ export interface CommonUpdateOptions {
 }
 
 export interface NpmUpdateOptions extends CommonUpdateOptions {
+  artifacts?: { cli: ArtifactSource; platform: ArtifactSource };
   nodePath: string;
   npmCliPath: string;
   npmLauncherPath: string;
@@ -113,6 +114,12 @@ interface InternalRequest {
         npm_cli_path: string;
         npm_launcher_path: string;
         npm_package_root: string;
+        artifacts?: {
+          cli_path: string;
+          cli_sha256: string;
+          platform_path: string;
+          platform_sha256: string;
+        };
       }
     | {
         kind: "windows-installer";
@@ -434,6 +441,17 @@ export function createBackgroundUpdateManager(
     async prepareNpm(options: NpmUpdateOptions): Promise<PreparedBackgroundUpdate> {
       const common = await prepareCommon(options, "npm");
       try {
+        const artifacts = options.artifacts
+          ? {
+              cli: await prepareArtifact(common, "npm", options.artifacts.cli, "cli.tgz"),
+              platform: await prepareArtifact(
+                common,
+                "npm",
+                options.artifacts.platform,
+                "platform.tgz",
+              ),
+            }
+          : undefined;
         return await finalize(common, {
           kind: "npm",
           node_path: await requireRegularFile(options.nodePath, "npm Node.js executable"),
@@ -443,6 +461,16 @@ export function createBackgroundUpdateManager(
             "npm codexhost launcher",
           ),
           npm_package_root: requireAbsolutePath(options.packageRoot, "npm platform package root"),
+          ...(artifacts
+            ? {
+                artifacts: {
+                  cli_path: artifacts.cli.artifactPath,
+                  cli_sha256: artifacts.cli.source.sha256,
+                  platform_path: artifacts.platform.artifactPath,
+                  platform_sha256: artifacts.platform.source.sha256,
+                },
+              }
+            : {}),
         });
       } catch (error) {
         await writeFailedStatus(common.statusPath, common.version, "npm", error);

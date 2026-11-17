@@ -156,6 +156,7 @@ const runtimeLicenses = [
     output: "tailwindcss-LICENSE.txt",
   },
   { packageName: "ws", license: "MIT", source: "LICENSE", output: "ws-LICENSE.txt" },
+  { packageName: "yaml", license: "ISC", source: "LICENSE", output: "yaml-LICENSE.txt" },
   { packageName: "zod", license: "MIT", source: "LICENSE", output: "zod-LICENSE.txt" },
 ];
 
@@ -302,6 +303,7 @@ export function expectedNpmPackagePaths(target) {
     "licenses/lucide-LICENSE.txt",
     "licenses/tailwindcss-LICENSE.txt",
     "licenses/ws-LICENSE.txt",
+    "licenses/yaml-LICENSE.txt",
     "licenses/zod-LICENSE.txt",
     "licenses/DesktopScreenshot-NOTICES.txt",
     "THIRD_PARTY_NOTICES.txt",
@@ -342,7 +344,7 @@ export function createNpmPackageManifest({ version, target }) {
   };
 }
 
-export function createNpmBinLauncherSource({ version }) {
+export function createNpmBinLauncherSource({ version, repository = "BytePioneer-AI/codex-host" }) {
   return `#!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
@@ -373,7 +375,7 @@ const userArguments = process.argv.slice(2);
     process.exit(1);
   }
 }
-const repositoryUrl = "https://github.com/BytePioneer-AI/codex-host";
+const repositoryUrl = ${JSON.stringify(`https://github.com/${repository}`)};
 const startupTraceStartedAt = Date.now();
 function startupTrace(stage) {
   if (process.env.CODEXHOST_STARTUP_TRACE !== "1") return;
@@ -439,7 +441,7 @@ try {
   }
   if (!packageRoot) {
     fail(
-      \`missing optional platform package '\${platformPackage}'. Reinstall ${NPM_PACKAGE_NAME} without --omit=optional.\`,
+      \`missing optional platform package '\${platformPackage}'. ${repository !== "BytePioneer-AI/codex-host" ? `Reinstall from https://github.com/${repository}/releases/tag/v${version}.` : `Reinstall ${NPM_PACKAGE_NAME} without --omit=optional.`}\`,
     );
   }
 }
@@ -452,7 +454,7 @@ try {
 }
 if (platformVersion !== version) {
   fail(
-    \`platform package version mismatch: '\${platformPackage}' at '\${packageRoot}' has \${JSON.stringify(platformVersion) ?? "no version"}; expected \${version}. Close Codex Desktop, then run: npm install -g @codexhost/cli@\${version} \${platformPackage}@\${version}\`,
+    \`platform package version mismatch: '\${platformPackage}' at '\${packageRoot}' has \${JSON.stringify(platformVersion) ?? "no version"}; expected \${version}. Close Codex Desktop, then run: npm install -g ${repository !== "BytePioneer-AI/codex-host" ? `https://github.com/${repository}/releases/download/v${version}/codexhost-cli-${version}.tgz` : `@codexhost/cli@\${version} \${platformPackage}@\${version}`}\`,
   );
 }
 startupTrace("platform package resolved");

@@ -68,10 +68,23 @@ export async function smokeNpmPackage({ targetName, version, workDirectory }) {
       `${JSON.stringify({ name: "codexhost-npm-smoke", private: true }, null, 2)}\n`,
       "utf8",
     );
-    execFileSync("npm", ["install", "--ignore-scripts", platformTarball, metaTarball], {
-      cwd: directory,
-      stdio: "inherit",
-    });
+    execFileSync(
+      "npm",
+      [
+        "install",
+        "--ignore-scripts",
+        "--omit=optional",
+        "--offline",
+        "--no-audit",
+        "--no-fund",
+        platformTarball,
+        metaTarball,
+      ],
+      {
+        cwd: directory,
+        stdio: "inherit",
+      },
+    );
     const packageName = NPM_PLATFORM_PACKAGE_NAMES[target.id];
     const packageRoot = path.join(directory, "node_modules", ...packageName.split("/"));
     const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));

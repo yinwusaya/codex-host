@@ -8,6 +8,7 @@ import {
   fetchLatestGitHubReleaseWithGitHubCli,
   parseLatestGitHubRelease,
   selectInstallerReleaseArtifact,
+  selectNpmReleaseArtifacts,
   type GitHubCliRunner,
 } from "@codexhost/update-manager";
 
@@ -34,6 +35,41 @@ function release(overrides: Record<string, unknown> = {}) {
 }
 
 describe("GitHub Release update discovery", () => {
+  it("pins fork discovery and both npm artifacts to the installed repository", async () => {
+    const repository = "yinwusaya/codex-host";
+    const base = `https://github.com/${repository}/releases`;
+    const data = release({
+      html_url: `${base}/tag/v1.2.3`,
+      assets: ["codexhost-cli-1.2.3.tgz", "codexhost-cli-1.2.3-linux-x64.tgz"].map((name) => ({
+        name,
+        size: 42,
+        digest: `sha256:${"ab".repeat(32)}`,
+        browser_download_url: `${base}/download/v1.2.3/${name}`,
+      })),
+    });
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(data)));
+    const parsed = await fetchLatestGitHubRelease({ repository, fetch: fetchImpl });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      `https://api.github.com/repos/${repository}/releases/latest`,
+    );
+    expect(selectNpmReleaseArtifacts(parsed, "linux-x64", repository).platform.url).toBe(
+      `${base}/download/v1.2.3/codexhost-cli-1.2.3-linux-x64.tgz`,
+    );
+    expect(() => parseLatestGitHubRelease(release(), repository)).toThrow("does not match");
+    expect(() => selectNpmReleaseArtifacts(parsed, "linux-arm64", repository)).toThrow(
+      "exactly one",
+    );
+    expect(() =>
+      selectNpmReleaseArtifacts(parsed, "linux-x64", "BytePioneer-AI/codex-host"),
+    ).toThrow("unexpected download URL");
+    expect(() => parseLatestGitHubRelease(data, "../upstream")).toThrow("owner/repo");
+    const run = vi.fn<GitHubCliRunner>(async () => JSON.stringify(data));
+    await expect(fetchLatestGitHubReleaseWithGitHubCli({ repository, run })).resolves.toMatchObject(
+      { version: "1.2.3" },
+    );
+    expect(run.mock.calls[0]?.[1]).toContain(`repos/${repository}/releases/latest`);
+  });
+
   it("parses the public latest response and selects one exact target asset", () => {
     const parsed = parseLatestGitHubRelease(release());
     expect(parsed.version).toBe("1.2.3");
