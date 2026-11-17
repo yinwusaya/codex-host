@@ -10,7 +10,6 @@ type CreateInput = {
   cwd: string;
   config?: Record<string, unknown>;
   input: { type: string; text: string }[];
-  config?: { model: string };
   collaborationMode: { mode: string; settings: { model: string; reasoning_effort: string } };
 };
 
