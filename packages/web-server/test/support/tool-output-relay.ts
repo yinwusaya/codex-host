@@ -16,7 +16,8 @@ export async function toolOutputRelay(t: TestContext) {
     reply(503, { detail: "isolated CA" });
     return true;
   });
-  const relay = await startRelay(t);
+  // Transport checks must not mistake CI scheduling delays for missed 25 ms heartbeats.
+  const relay = await startRelay(t, 25_000);
   const data = relayData(t);
   const host = new FakeChChannel();
   const row = host.add("large-tool", data.root, "Large tool output");
