@@ -15,7 +15,6 @@ mod secure_storage;
 mod service_update;
 mod services;
 mod startup_record;
-#[cfg(target_os = "macos")]
 mod system_proxy_environment;
 mod web_service;
 
@@ -150,6 +149,7 @@ const USAGE: &str = "usage:
   codexhost harness list|inspect ...
   codexhost delegate start ...
   codexhost thread send|cancel|read|wait|watch|watches|list|file ...
+  codexhost thread export <thread> (rarely needed)
   codexhost client status|on|off|create|list|revoke ...
   codexhost events pull|ack ...";
 
@@ -1318,10 +1318,19 @@ fn launch_gui(
             {
                 continue;
             }
-            result => return result,
+            Ok(()) => {
+                console::stop_for_launch();
+                return Ok(());
+            }
+            Err(error) => return Err(error),
         }
         #[cfg(target_os = "macos")]
-        return result;
+        {
+            if result.is_ok() {
+                console::stop_for_launch();
+            }
+            return result;
+        }
     }
 }
 
@@ -1406,14 +1415,18 @@ fn launch_gui(
             env::var_os(REMOTE_SSH_MANAGED_ENV),
         ),
     );
-    supervise_desktop(
+    let result = supervise_desktop(
         &installation,
         &options,
         &control.renderer_cdp_arguments,
         &environment,
         &control,
         &descriptor_path,
-    )
+    );
+    if result.is_ok() {
+        console::stop_for_launch();
+    }
+    result
 }
 
 fn start_launch_console(options: &LaunchOptions) {
@@ -1536,6 +1549,10 @@ fn run(arguments: &[String]) -> Result<(), Box<dyn Error>> {
         }
         Some("host") => host_service::run(&arguments[1..]),
         Some("web-service") => web_service::run(&arguments[1..]),
+        Some("proxy-environment") if arguments.len() == 1 => {
+            system_proxy_environment::print_proxy_environment()
+        }
+        Some("proxy-environment") => Err("proxy-environment accepts no arguments".into()),
         Some("broker") => run_native_harness_broker_cli(&arguments[1..]),
         Some("project") | Some("harness") | Some("delegate") | Some("thread") | Some("client")
         | Some("events") => run_delegation_cli(arguments),

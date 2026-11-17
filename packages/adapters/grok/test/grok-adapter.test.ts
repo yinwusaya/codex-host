@@ -1531,7 +1531,7 @@ describe("Grok Adapter ACP projection", () => {
     }
   });
 
-  it("publishes received-text TPS when native reasoning is not streamed", async () => {
+  it("preserves usage and publishes text-window TPS when native reasoning is not streamed", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
     const transport = new FakeGrokTransport();
     const { adapter, session } = await openedSession(transport);
@@ -1566,6 +1566,9 @@ describe("Grok Adapter ACP projection", () => {
           inputTokens: 26222,
           outputTokens: 104,
           reasoningTokens: 54,
+          cachedReadTokens: 0,
+          cacheCreationTokens: 0,
+          costUsdTicks: 100000000,
           modelCalls: 1,
         },
       );
@@ -1575,10 +1578,15 @@ describe("Grok Adapter ACP projection", () => {
         events.push(event);
         if (event.type === "turn.completed") break;
       }
-      expect(events.findLast((e) => e.type === "session.usage.changed")?.usage).toMatchObject({
+      const snapshots = events.filter((event) => event.type === "session.usage.changed");
+      expect(snapshots.length).toBeGreaterThan(0);
+      expect(snapshots.at(-1)?.usage).toMatchObject({
+        inputTokens: 26222,
         outputTokens: 104,
         reasoningOutputTokens: 54,
-        outputTokensPerSecond: 52,
+        outputTokensPerSecond: 25,
+        totalCostUsd: 0.01,
+        sessionCacheUsage: { inputTokens: 26222, cachedInputTokens: 0 },
       });
     } finally {
       await adapter.close();
@@ -3271,13 +3279,13 @@ describe("Grok Adapter ACP projection", () => {
   });
 
   it.each([
-    { model: undefined, reportedModel: undefined },
-    { model: "grok-4.5", reportedModel: undefined },
-    { model: "grok-4.5", reportedModel: "grok-4.6" },
-    { model: undefined, reportedModel: "provider/child-model" },
+    { model: undefined, reportedModel: undefined, effort: undefined },
+    { model: "grok-4.5", reportedModel: undefined, effort: undefined },
+    { model: "grok-4.5", reportedModel: "grok-4.6", effort: undefined },
+    { model: undefined, reportedModel: "provider/child-model", effort: "low" },
   ])(
-    "projects Grok Subagents without inferring child configuration: %j",
-    async ({ model, reportedModel }) => {
+    "projects Grok Subagents using native configuration before parent defaults: %j",
+    async ({ model, reportedModel, effort }) => {
       const transport = new FakeGrokTransport();
       const { adapter, session } = await openedSession(transport);
       expect(session.capabilities.subagents).toEqual({ observe: true, readTranscript: true });
@@ -3301,6 +3309,7 @@ describe("Grok Adapter ACP projection", () => {
           prompt: "Look at the repo",
           subagent_type: "explore",
           ...(model ? { model } : {}),
+          ...(effort ? { reasoning_effort: effort } : {}),
           background: true,
         },
         status: "in_progress",
@@ -3326,9 +3335,12 @@ describe("Grok Adapter ACP projection", () => {
       if (started.type !== "item.started" || started.item.type !== "subagentDelegation") {
         throw new Error("Expected Subagent delegation");
       }
-      expect(started.item.subagents[0]?.model).toBe(model);
-      expect(started.item.subagents[0]).not.toHaveProperty("reasoningEffort");
-      if (!model) expect(started.item.subagents[0]).not.toHaveProperty("model");
+      expect(started.item.subagents[0]?.model).toBe(
+        model ?? session.initialState.effectiveModel?.id,
+      );
+      expect(started.item.subagents[0]?.reasoningEffort).toBe(
+        effort ?? session.initialState.effectiveThinkingOptionId,
+      );
 
       transport.event({
         type: "tool.update",

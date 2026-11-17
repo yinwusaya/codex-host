@@ -1,3 +1,4 @@
+import { subagentConfiguration } from "@codexhost/harness-adapter";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -103,6 +104,8 @@ export type OmpTurnEvent =
     }
   | {
       type: "subagent.started";
+      model?: string;
+      reasoningEffort?: string;
       callId: string;
       nativeSubagentId: string;
       description: string;
@@ -113,6 +116,8 @@ export type OmpTurnEvent =
     }
   | {
       type: "subagent.updated";
+      model?: string;
+      reasoningEffort?: string;
       callId: string;
       nativeSubagentId: string;
       status: OmpSubagentTurnStatus;
@@ -567,6 +572,7 @@ export class OmpRpcSession {
   #latestCacheHitRatePercent: number | null | undefined;
   #manualCompaction: ManualCompaction | null = null;
   #usageRequestStartedAtMs: number | null = null;
+  #usageRequestTimingUnavailable = false;
   #stderrTail = "";
   #frameDecoder = new OmpFrameDecoder();
   #startupFaultResolve: ((error: OmpRpcFaultError) => void) | null = null;
@@ -634,6 +640,17 @@ export class OmpRpcSession {
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       this.#stderrTail = sanitizeDiagnosticTail(`${this.#stderrTail}${chunk.toString()}`);
+    });
+    // A child that exits before reading closes the pipe; without a listener the
+    // EPIPE becomes an uncaught exception and stops the shared Host.
+    child.stdin.on("error", (error) => {
+      this.#fail(
+        new OmpRpcFaultError(
+          "processExited",
+          `Omp RPC stdin closed: ${error.message}`,
+          this.stderrTail,
+        ),
+      );
     });
     child.once("error", (error) => {
       const kind = isRecord(error) && error.code === "ENOENT" ? "notInstalled" : "unavailable";
@@ -1354,19 +1371,38 @@ export class OmpRpcSession {
   #observeUsage(value: Record<string, unknown>): void {
     if (value.type === "message_start") {
       this.#usageRequestStartedAtMs = null;
+      this.#usageRequestTimingUnavailable = false;
       return;
     }
-    // Generation starts at the first output token: the first thinking, text or tool-call block
-    // or delta. Prefill before it is excluded, as in DeepSeek dsh's decode time.
     if (value.type === "message_update") {
       const event = value.assistantMessageEvent;
       if (
         this.#usageRequestStartedAtMs === null &&
+        !this.#usageRequestTimingUnavailable &&
         isRecord(event) &&
-        typeof event.type === "string" &&
-        /^(text|thinking|reasoning|thought|toolcall)_(start|delta)$/u.test(event.type)
+        typeof event.type === "string"
       ) {
-        this.#usageRequestStartedAtMs = Date.now();
+        if (
+          // Native thinking starts can precede visible text by seconds; output usage includes it.
+          /^(thinking|reasoning|thought)_start$/u.test(event.type) ||
+          (/^(text|thinking|reasoning|thought)_delta$/u.test(event.type) &&
+            typeof event.delta === "string" &&
+            event.delta.length > 0)
+        )
+          this.#usageRequestStartedAtMs = Date.now();
+        else if (
+          event.type === "toolcall_delta" &&
+          typeof event.delta === "string" &&
+          event.delta.length > 0
+        ) {
+          // Some providers synthesize start/delta/end after assembling the entire arguments.
+          try {
+            JSON.parse(event.delta);
+            this.#usageRequestTimingUnavailable = true;
+          } catch {
+            this.#usageRequestStartedAtMs = Date.now();
+          }
+        } else if (event.type === "toolcall_end") this.#usageRequestTimingUnavailable = true;
       }
       return;
     }
@@ -1418,6 +1454,7 @@ export class OmpRpcSession {
             : "Subagent delegation";
         emit?.({
           type: "subagent.started",
+          ...subagentConfiguration(payload),
           callId,
           nativeSubagentId,
           description,
@@ -1452,6 +1489,8 @@ export class OmpRpcSession {
     const resultSummary = recentOutput.at(-1);
     emit?.({
       type: "subagent.updated",
+      ...subagentConfiguration(payload),
+      ...subagentConfiguration(progress),
       callId,
       nativeSubagentId,
       status,

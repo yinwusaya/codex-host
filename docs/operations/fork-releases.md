@@ -4,6 +4,7 @@
 
 - Repository: `https://github.com/yinwusaya/codex-host`.
 - Personal development and release candidates: `dev`. Merge upstream changes into this branch without discarding personal changes.
+- Before release preparation, fetch upstream `BytePioneer-AI/codex-host` `main`, fast-forward the local `main` mirror, then merge `main` into `dev`. Neither repository currently has a `master` branch. Preserve fork changes and verify the merged commit before choosing a release version; fetching alone is not integration.
 - G7 is the designated development machine. Source synchronization is not an application update: fetching or merging code does not build, install, or restart a runtime.
 - Daily-use machines install verified releases from this fork. Windows/macOS installers and Linux npm tarballs may differ in format but must come from the same release commit.
 - A source checkout remains a development installation; never manufacture `codexhost-distribution.json` to enable self-update.

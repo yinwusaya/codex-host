@@ -1,3 +1,8 @@
+import {
+  configureSubagentEvent,
+  configureSubagentSnapshot,
+  type SubagentConfiguration,
+} from "@codexhost/harness-adapter";
 import type {
   HarnessCommandAccepted,
   HarnessCommandCapability,
@@ -179,7 +184,13 @@ export class CodeBuddySession implements HarnessSession {
               return;
             }
             if (this.#replaying) return;
-            if (this.subagents.update(update)) return;
+            // A started Tool keeps its owner even when later fragments change its metadata.
+            if (
+              (text(record(update._meta)["codebuddy.ai/parentToolCallId"]) ||
+                !this.#active?.output.hasItem(`tool-${text(update.toolCallId)}`)) &&
+              this.subagents.update(update)
+            )
+              return;
             if (update.sessionUpdate === "config_option_update" && this.#config)
               this.#apply(configuration(update.configOptions, this.profile));
             if (
@@ -295,6 +306,7 @@ export class CodeBuddySession implements HarnessSession {
   }
 
   #emit(event: HostEvent) {
+    event = configureSubagentEvent(event, this.#subagentConfiguration());
     this.#channel.emit({ kind: "event", event });
   }
 
@@ -418,7 +430,25 @@ export class CodeBuddySession implements HarnessSession {
     }
   }
 
+  #subagentConfiguration(): SubagentConfiguration {
+    const state = this.#state;
+    const model = state.effectiveModel ? nativeModel(state.effectiveModel) : undefined;
+    return {
+      ...(model ? { model } : {}),
+      ...(state.effectiveThinkingOptionId
+        ? { reasoningEffort: state.effectiveThinkingOptionId }
+        : {}),
+    };
+  }
+
   async readSnapshot(): Promise<HarnessResult<HostThreadSnapshot>> {
+    const result = await this.#readSnapshot();
+    return result.ok
+      ? { ok: true, value: configureSubagentSnapshot(result.value, this.#subagentConfiguration()) }
+      : result;
+  }
+
+  async #readSnapshot(): Promise<HarnessResult<HostThreadSnapshot>> {
     if (this.#closed || this.#fault)
       return failure("invalidState", "Session is closed or faulted", this.profile);
     if (this.#busy || this.#active)
@@ -625,7 +655,10 @@ export class CodeBuddySession implements HarnessSession {
           .flatMap((turn) => turn.items)
           .filter((snapshot) => !active.beforeItems.has(snapshot.item.itemId)),
       );
-      if (active.nativeCommand) active.output.replayCommandResult(added[0]?.items ?? []);
+      if (active.nativeCommand)
+        active.output.replayCommandResult(
+          (added[0]?.items ?? []).filter(({ item }) => !this.subagents.hasItem(item.itemId)),
+        );
       const nativeTurnRef = added[0]?.nativeTurnRef;
       if (nativeTurnRef) this.#hasTurn = true;
       if (response.userMessageId && nativeTurnRef?.nativeTurnKey !== response.userMessageId)

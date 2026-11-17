@@ -200,6 +200,7 @@ describe("Skill Library", () => {
     let first = true;
     vi.spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
       const handle = await original(...args);
+      // Match either separator; Windows passes backslash paths to fs.open.
       if (args[0] === oldSkill && first) {
         first = false;
         await gate;

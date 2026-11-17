@@ -436,16 +436,13 @@ registerAccessTokenRpc(rpc, accessTokens, {
 });
 registerBackgroundControls(rpc, accessTokens, {
   background: background !== undefined,
-  port: () => listeningPort,
   data,
   launcher,
   npmEntrypoint,
   shutdown,
 });
 registerMisc(rpc, { events });
-registerUiExtensionRpc(rpc, extensions, {
-  port: () => (server.address() as { port: number }).port,
-});
+registerUiExtensionRpc(rpc, extensions);
 registerVoiceStatus(rpc, chHost);
 
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
@@ -483,8 +480,8 @@ async function readBody(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<string | undefined> {
-  // 32 MiB of image bytes plus base64/JSON overhead. Reject before parsing or saving.
-  const limit = 48 * 1024 * 1024;
+  // 50 MiB of image bytes plus base64/JSON overhead. Reject before parsing or saving.
+  const limit = 72 * 1024 * 1024;
   const reject = () => {
     response
       .writeHead(413, { "content-type": "text/plain", "cache-control": "no-store" })
@@ -700,7 +697,7 @@ const server = createWebServer((request, response) => {
 });
 
 const relay = new RemoteRelay(data, accessTokens !== undefined, server, trust);
-registerRelayRpc(rpc, accessTokens, () => listeningPort, relay);
+registerRelayRpc(rpc, accessTokens, relay);
 if (serviceOptions.relayEnabled) relay.start();
 
 const wss = createBrowserWebSocketServer();
