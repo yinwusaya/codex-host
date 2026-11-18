@@ -90,7 +90,7 @@ describe("workflow and form contracts", () => {
 
   it("releases main without publishing fork packages to upstream npm", async () => {
     const workflow = await read(".github/workflows/release-packages.yml");
-    expect(workflow).toMatch(/^  RELEASE_BRANCH: main$/mu);
+    expect(workflow).toMatch(/^ {2}RELEASE_BRANCH: main$/mu);
     expect(workflow).not.toContain("&& 'dev'");
     expect(workflow).toContain("ref: ${{ env.RELEASE_BRANCH }}");
     expect(workflow).toContain("releaseBranch: process.env.RELEASE_BRANCH");
