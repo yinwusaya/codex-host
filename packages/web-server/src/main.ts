@@ -33,6 +33,7 @@ import { WebUiExtensions } from "./ui-extensions.ts";
 import { AccessTokenStore } from "./access-tokens.ts";
 import { SWITCH_TOKEN_SCRIPT } from "./auth-page.ts";
 import { AccessAuth, CredentialConnections, LOCAL_CREDENTIAL, type RequestAuth } from "./auth.ts";
+import { loadAuthenticationProvider } from "./auth-provider.ts";
 import {
   isLoopbackHost,
   isWildcardHost,
@@ -135,6 +136,8 @@ const { values } = parseArgs({
     },
     token: { type: "string", default: process.env.CODEXHOST_WEB_TOKEN },
     "trusted-proxy": { type: "string" },
+    "auth-provider": { type: "string" },
+    "auth-provider-config": { type: "string" },
     "public-url": { type: "string" },
     relay: { type: "string" },
     "import-recent": { type: "string", default: process.env.CODEXHOST_IMPORT_RECENT },
@@ -188,7 +191,13 @@ const accessTokens =
     ? undefined
     : new AccessTokenStore(data, values.token === undefined ? {} : { token: values.token });
 const connections = new CredentialConnections();
-const auth = accessTokens && new AccessAuth(accessTokens, trust, connections);
+const providerPath = background ? background.authProvider : values["auth-provider"];
+const providerConfig = background ? background.authProviderConfig : values["auth-provider-config"];
+if (values["no-auth"] && (providerPath !== undefined || providerConfig !== undefined))
+  throw new Error("Authentication providers cannot be used with --no-auth");
+const authenticationProvider = await loadAuthenticationProvider(providerPath, providerConfig);
+const auth =
+  accessTokens && new AccessAuth(accessTokens, trust, connections, authenticationProvider);
 const rpc = new RpcRegistry();
 const streams = new StreamRegistry();
 const events = new EventHub(homedir());
@@ -697,6 +706,7 @@ const server = createWebServer((request, response) => {
 });
 
 const relay = new RemoteRelay(data, accessTokens !== undefined, server, trust);
+server.once("close", () => auth?.dispose());
 registerRelayRpc(rpc, accessTokens, relay);
 if (serviceOptions.relayEnabled) relay.start();
 

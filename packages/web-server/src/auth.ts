@@ -12,6 +12,7 @@ import type { Duplex } from "node:stream";
 import type { AccessTokenStore } from "./access-tokens.ts";
 import { signInDocument, type SignInNotice } from "./auth-page.ts";
 import { isLocalConnection, type RequestTrust } from "./request-trust.ts";
+import { ProviderConnections, type AuthenticationProvider } from "./auth-provider.ts";
 
 const cookieName = (secure: boolean): string =>
   secure ? "__Host-codexhost_token" : "codexhost_token";
@@ -115,12 +116,20 @@ function presentedToken(
 
 export class AccessAuth {
   private readonly limit = new FailedSignInLimit();
+  private readonly provider: ProviderConnections | undefined;
 
   constructor(
     private readonly tokens: AccessTokenStore,
     private readonly trust: RequestTrust,
     private readonly connections: CredentialConnections,
-  ) {}
+    provider?: AuthenticationProvider,
+  ) {
+    this.provider = provider === undefined ? undefined : new ProviderConnections(provider);
+  }
+
+  dispose(): void {
+    this.provider?.dispose();
+  }
 
   /** @returns the credential this token grants on this connection, if any. */
   private credentialFor(token: string, request: IncomingMessage): string | undefined {
@@ -158,6 +167,31 @@ export class AccessAuth {
     response: ServerResponse,
     pathname: string,
   ): Promise<{ handled: true } | { handled: false; auth: RequestAuth | undefined }> {
+    const provider = this.provider;
+    const supplied = provider?.authenticate(request);
+    if (supplied?.status === "denied") {
+      request.resume();
+      response.writeHead(401, { "cache-control": "no-store" }).end("authentication required");
+      return { handled: true };
+    }
+    if (supplied?.status === "authenticated" && provider !== undefined) {
+      this.trust.authenticated(request);
+      const auth: RequestAuth = {
+        credential: `provider:${supplied.credential}`,
+        local: false,
+        release: provider.track(supplied, response),
+      };
+      if (pathname === "/api/auth/login" || pathname === "/api/auth/logout") {
+        request.resume();
+        response.writeHead(403).end("provider authentication cannot issue cookies");
+        return { handled: true };
+      }
+      if (pathname !== "/api/auth/status") return { handled: false, auth };
+      response
+        .writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+        .end(JSON.stringify({ authenticated: true, local: false }));
+      return { handled: true };
+    }
     if (pathname === "/api/auth/login" && request.method === "POST") {
       await this.serveLogin(request, response);
       return { handled: true };
@@ -199,6 +233,17 @@ export class AccessAuth {
    * @returns whether the upgrade may proceed; otherwise the socket has been answered and closed.
    */
   admitUpgrade(request: IncomingMessage, socket: Duplex): boolean {
+    const provider = this.provider;
+    const supplied = provider?.authenticate(request);
+    if (supplied?.status === "authenticated" && provider !== undefined) {
+      provider.track(supplied, socket);
+      this.trust.authenticated(request);
+      return true;
+    }
+    if (supplied?.status === "denied") {
+      socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      return false;
+    }
     const presented = presentedToken(request, this.trust.secure(request));
     const credential =
       presented === undefined ? undefined : this.credentialFor(presented.token, request);

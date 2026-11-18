@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { DataDir } from "./store.ts";
 import { RequestTrust } from "./request-trust.ts";
@@ -10,6 +11,11 @@ export const SETTINGS_CHANGED_EXIT_CODE = 42;
 const serviceSchema = z.object({
   host: z.string().min(1).default("127.0.0.1"),
   port: z.number().int().min(1).max(65535).default(4400),
+  authProvider: z.string().refine(isAbsolute, "Provider path must be absolute").optional(),
+  authProviderConfig: z
+    .string()
+    .refine(isAbsolute, "Provider config path must be absolute")
+    .optional(),
   publicUrl: z
     .string()
     .transform((value) => {
@@ -84,6 +90,8 @@ export function saveServiceOptions(
     port?: string;
     "public-url"?: string;
     "trusted-proxy"?: string;
+    "auth-provider"?: string;
+    "auth-provider-config"?: string;
     relay?: string;
   },
 ): boolean {
@@ -95,6 +103,8 @@ export function saveServiceOptions(
     ["public-url", "publicUrl"],
     ["relay", "relayHost"],
     ["trusted-proxy", "trustedProxies"],
+    ["auth-provider", "authProvider"],
+    ["auth-provider-config", "authProviderConfig"],
   ] as const) {
     const value = options[option];
     if (value === undefined) continue;

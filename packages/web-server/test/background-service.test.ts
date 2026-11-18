@@ -96,6 +96,20 @@ test("one-shot save reports changed, unchanged and invalid options without start
   assert.equal(readFileSync(data.path("web/service.json"), "utf8"), saved);
 });
 
+test("authentication provider paths survive service persistence and can be explicitly cleared", (t) => {
+  const data = fixture(t);
+  const module = data.path("provider.mjs"),
+    config = data.path("public-trust.json");
+  saveServiceOptions(data, { "auth-provider": module, "auth-provider-config": config });
+  assert.equal(readServiceOptions(data).authProvider, module);
+  assert.equal(readServiceOptions(data).authProviderConfig, config);
+  assert.throws(() => saveServiceOptions(data, { "auth-provider": "relative.mjs" }));
+  assert.equal(readServiceOptions(data).authProvider, module);
+  saveServiceOptions(data, { "auth-provider": "", "auth-provider-config": "" });
+  assert.equal(readServiceOptions(data).authProvider, undefined);
+  assert.equal(readServiceOptions(data).authProviderConfig, undefined);
+});
+
 test("background HTTP publishes only private Web access data after listening", async (t) => {
   const data = fixture(t);
   const reservation = createServer();

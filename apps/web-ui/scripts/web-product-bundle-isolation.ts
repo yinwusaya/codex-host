@@ -12,8 +12,8 @@ export interface WebOutputChunk {
   modules: Record<string, unknown>;
   imports: string[];
   dynamicImports: string[];
-  implicitlyLoadedBefore: string[];
-  referencedFiles: string[];
+  implicitlyLoadedBefore?: string[];
+  referencedFiles?: string[];
   viteMetadata?: { importedCss: Set<string>; importedAssets: Set<string> };
 }
 
@@ -32,8 +32,8 @@ export type WebOutputBundle = Record<string, WebOutputChunk | WebOutputAsset>;
 export interface WebModuleInfo {
   importedIds: readonly string[];
   dynamicallyImportedIds: readonly string[];
-  isExternal: boolean;
-  isIncluded: boolean | null;
+  isExternal?: boolean;
+  isIncluded?: boolean | null;
 }
 
 interface AssetReference {
@@ -90,8 +90,8 @@ export class WebProductBundleIsolation {
         modules: { ...item.modules },
         imports: [...item.imports],
         dynamicImports: [...item.dynamicImports],
-        implicitlyLoadedBefore: [...item.implicitlyLoadedBefore],
-        referencedFiles: [...item.referencedFiles],
+        implicitlyLoadedBefore: [...(item.implicitlyLoadedBefore ?? [])],
+        referencedFiles: [...(item.referencedFiles ?? [])],
         ...(item.viteMetadata === undefined
           ? {}
           : {
@@ -136,7 +136,9 @@ export class WebProductBundleIsolation {
     const outputs = new Map(Object.entries(bundle));
     const aliases = new Map<string, string>();
     const cssOwners = new Map<string, Set<string>>();
+    const includedModules = new Set<string>();
     for (const [file, chunk] of this.chunks) {
+      for (const id of Object.keys(chunk.modules)) includedModules.add(id);
       aliases.set(chunk.preliminaryFileName ?? file, file);
       for (const css of chunk.viteMetadata?.importedCss ?? []) {
         const owners = cssOwners.get(css) ?? new Set<string>();
@@ -166,6 +168,8 @@ export class WebProductBundleIsolation {
       for (const input of inputs) this.inputs.assertInput(input);
     };
     const checkModule = (id: string): void => {
+      // Rolldown injects this runtime without exposing a module record.
+      if (id === "\0rolldown/runtime.js") return;
       if (visitedModules.has(id)) return;
       visitedModules.add(id);
       this.inputs.assertInput(id);
@@ -184,9 +188,12 @@ export class WebProductBundleIsolation {
       for (const file of this.cssInputs.get(id) ?? []) this.inputs.assertInput(file);
       for (const child of [...info.importedIds, ...info.dynamicallyImportedIds]) {
         const childInfo = moduleInfo(child);
-        if (childInfo === null)
-          throw new Error(`Web product isolation: module ${child} has no Rollup module record`);
-        if (childInfo.isIncluded || childInfo.isExternal) checkModule(child);
+        if (childInfo === null) {
+          checkModule(child);
+          continue;
+        }
+        if ((childInfo.isIncluded ?? includedModules.has(child)) || childInfo.isExternal)
+          checkModule(child);
       }
     };
     for (const name of queue) {
@@ -202,8 +209,8 @@ export class WebProductBundleIsolation {
         queue.push(
           ...item.imports,
           ...item.dynamicImports,
-          ...item.implicitlyLoadedBefore,
-          ...item.referencedFiles,
+          ...(item.implicitlyLoadedBefore ?? []),
+          ...(item.referencedFiles ?? []),
         );
         queue.push(
           ...(item.viteMetadata?.importedCss ?? []),
