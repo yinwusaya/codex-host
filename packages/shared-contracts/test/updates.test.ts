@@ -17,7 +17,7 @@ const status = {
 } as const;
 
 describe("update runtime contracts", () => {
-  it("accepts bounded check, start, and status results", () => {
+  it.each(["BytePioneer-AI", "yinwusaya"])("accepts bounded results from %s", (owner) => {
     expect(
       updateCheckResultSchema.parse({
         currentVersion: "1.2.2",
@@ -26,7 +26,7 @@ describe("update runtime contracts", () => {
         updateAvailable: true,
         installationAvailable: true,
         releaseNotes: "## Changes\n\n- Safer updates",
-        releaseNotesUrl: "https://github.com/BytePioneer-AI/codex-host/releases/tag/v1.2.3",
+        releaseNotesUrl: `https://github.com/${owner}/codex-host/releases/tag/v1.2.3`,
         status: null,
         error: null,
       }),
@@ -46,6 +46,19 @@ describe("update runtime contracts", () => {
       serviceStopOutput,
     );
     expect(updateStatusSchema.safeParse({ ...status, serviceStopOutput: 7 }).success).toBe(false);
+  });
+
+  it.each([
+    "http://github.com/yinwusaya/codex-host/releases/tag/v1.2.3",
+    "https://github.com.evil.test/yinwusaya/codex-host/releases/tag/v1.2.3",
+    "https://github.com@evil.test/yinwusaya/codex-host/releases/tag/v1.2.3",
+    "https://github.com/yinwusaya/other/releases/tag/v1.2.3",
+    "https://github.com/yinwusaya/codex-host/releases/download/v1.2.3",
+    "https://github.com/yinwusaya/codex-host/releases/tag/v1.2.3?redirect=evil",
+    "https://github.com/yinwusaya/codex-host/releases/tag/v1.2.3#evil",
+    "https://github.com/yinwusaya/codex-host/releases/tag/v1.2.3/../../evil",
+  ])("rejects unsafe release notes URL %s", (url) => {
+    expect(updateCheckResultSchema.shape.releaseNotesUrl.safeParse(url).success).toBe(false);
   });
 
   it("accepts bounded download progress and rejects impossible byte counts", () => {
