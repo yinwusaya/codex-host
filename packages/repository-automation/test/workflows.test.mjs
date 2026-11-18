@@ -88,9 +88,10 @@ describe("workflow and form contracts", () => {
     expect(publishRelease).toContain("await verifyRelease(");
   });
 
-  it("releases the personal dev branch without publishing upstream npm packages", async () => {
+  it("releases main without publishing fork packages to upstream npm", async () => {
     const workflow = await read(".github/workflows/release-packages.yml");
-    expect(workflow).toContain("github.repository == 'yinwusaya/codex-host' && 'dev' || 'main'");
+    expect(workflow).toMatch(/^  RELEASE_BRANCH: main$/mu);
+    expect(workflow).not.toContain("&& 'dev'");
     expect(workflow).toContain("ref: ${{ env.RELEASE_BRANCH }}");
     expect(workflow).toContain("releaseBranch: process.env.RELEASE_BRANCH");
     expect(workflow).toContain("CODEXHOST_RELEASE_REPOSITORY: ${{ github.repository }}");
@@ -99,7 +100,9 @@ describe("workflow and form contracts", () => {
     expect(workflow).toContain(
       "needs.prepare.outputs.fork_release == 'true' && needs.publish-npm.result == 'skipped'",
     );
-    expect(await read(".github/workflows/ci.yml")).toMatch(/branches:\s+- main\s+- dev/u);
+    const ci = await read(".github/workflows/ci.yml");
+    expect(ci).toMatch(/branches:\s+- main\s+- dev/u);
+    expect(ci).not.toContain("upstream-sync");
   });
 
   it("limits CI skipping to explicit manual input and carries it through publication checks", async () => {

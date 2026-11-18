@@ -38,7 +38,7 @@ function cargoWorkspaceVersion(source) {
 }
 
 export async function readReleaseMetadata({ root, tag, expectedRefSha, releaseBranch = "main" }) {
-  if (!["main", "dev"].includes(releaseBranch)) throw new Error("unsupported release branch");
+  if (releaseBranch !== "main") throw new Error("unsupported release branch");
   if (typeof tag !== "string" || !tag.startsWith("v"))
     throw new Error("release tag must be v<semver>");
   const version = validateReleaseVersion(tag.slice(1));
@@ -172,7 +172,7 @@ export async function verifyRelease({
   skipCi = false,
   releaseBranch = "main",
 }) {
-  if (!["main", "dev"].includes(releaseBranch)) throw new Error("unsupported release branch");
+  if (releaseBranch !== "main") throw new Error("unsupported release branch");
   validateReleaseVersion(tag?.startsWith("v") ? tag.slice(1) : "");
   if (!SHA.test(sha) || !SHA.test(tagObjectSha))
     throw new Error("release verification requires full SHAs");

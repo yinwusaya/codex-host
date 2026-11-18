@@ -35,7 +35,7 @@ concurrency:
 
 env:
   SOURCE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-  RELEASE_BRANCH: ${{ github.repository == 'yinwusaya/codex-host' && 'dev' || 'main' }}
+  RELEASE_BRANCH: main
 
 jobs:
   prepare:

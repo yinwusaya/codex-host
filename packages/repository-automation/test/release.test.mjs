@@ -167,37 +167,23 @@ describe("release source and metadata", () => {
 });
 
 describe("exact-commit CI release gate", () => {
-  it("binds fork releases to dev membership and exact dev-push CI", async () => {
-    const f = await repository();
-    await f.git("update-ref", "refs/remotes/origin/dev", f.sha);
-    const github = githubFixture(f.sha);
-    github.rest.actions.listWorkflowRuns.mockResolvedValue({
-      data: [ci({ head_sha: f.sha, head_branch: "dev" }).run],
-    });
-    const result = await resolveRelease({ ...f, github, repo, releaseBranch: "dev" });
-    github.rest.git.getRef.mockResolvedValue({
-      data: { object: { type: "tag", sha: result.tagObjectSha } },
-    });
-    expect(result).toMatchObject({ releaseBranch: "dev", sha: f.sha, ciSkipped: false });
-    expect(github.rest.actions.listWorkflowRuns).toHaveBeenCalledWith(
-      expect.objectContaining({ branch: "dev" }),
-    );
-    await expect(
-      verifyRelease({ ...result, github, repo, ciRunId: 42, ciRunAttempt: 1 }),
-    ).resolves.toMatchObject({ ciRunId: 42 });
-    expect(github.rest.repos.compareCommits).toHaveBeenCalledWith(
-      expect.objectContaining({ head: "dev" }),
-    );
-    expect(() => assertReleaseCi(ci(), head, "dev")).toThrow("dev push");
-    await expect(readReleaseMetadata({ ...f, releaseBranch: "../main" })).rejects.toThrow(
-      "unsupported release branch",
-    );
-  });
+  it.each(["dev", "upstream-sync", "../main"])(
+    "rejects releases from %s",
+    async (releaseBranch) => {
+      const f = await repository();
+      await expect(readReleaseMetadata({ ...f, releaseBranch })).rejects.toThrow(
+        "unsupported release branch",
+      );
+      await expect(verifyRelease({ releaseBranch })).rejects.toThrow("unsupported release branch");
+    },
+  );
 
   it("requires all four successful jobs for the exact main-push commit", () => {
     expect(assertReleaseCi(ci(), head)).toMatchObject({ ciRunId: 42, ciRunAttempt: 1 });
     expect(() => assertReleaseCi(ci(), oldHead)).toThrow("exact release commit");
     expect(() => assertReleaseCi(ci({ event: "pull_request" }), head)).toThrow("main push");
+    expect(() => assertReleaseCi(ci({ head_branch: "dev" }), head)).toThrow("main push");
+    expect(() => assertReleaseCi(ci({ head_branch: "upstream-sync" }), head)).toThrow("main push");
     expect(() => assertReleaseCi({ jobs: [] }, head)).toThrow("evidence");
   });
 
