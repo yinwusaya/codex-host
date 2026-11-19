@@ -29,12 +29,17 @@ export function createNpmMetaPackageManifest({ version, repository }) {
     files: ["bin/**", "README.md"],
     engines: { node: NPM_NODE_ENGINE },
     optionalDependencies: Object.fromEntries(
-      Object.entries(NPM_PLATFORM_PACKAGE_NAMES).map(([target, packageName]) => [
-        packageName,
-        repository && repository !== "BytePioneer-AI/codex-host"
-          ? `https://github.com/${repository}/releases/download/v${version}/codexhost-cli-${version}-${target}.tgz`
-          : version,
-      ]),
+      Object.entries(NPM_PLATFORM_PACKAGE_NAMES)
+        .filter(
+          ([target]) =>
+            repository?.toLowerCase() !== "yinwusaya/codex-host" || target !== "macos-x64",
+        )
+        .map(([target, packageName]) => [
+          packageName,
+          repository && repository !== "BytePioneer-AI/codex-host"
+            ? `https://github.com/${repository}/releases/download/v${version}/codexhost-cli-${version}-${target}.tgz`
+            : version,
+        ]),
     ),
     keywords: ["codex", "codexhost", "pi", "claude-code", "agent", "harness"],
     repository: {

@@ -34,7 +34,7 @@ describe("platform packagers", () => {
     expect(source).not.toContain("cargo-packager");
   });
 
-  it("publishes one tag-bound four-platform installer and npm release", async () => {
+  it("publishes one tag-bound installer and npm release", async () => {
     const [workflow, releaseBuilder, releaseClient, releaseValidation] = await Promise.all([
       readFile(path.join(root, ".github/workflows/release-packages.yml"), "utf8"),
       readFile(path.join(root, "scripts/release/prepare-payload.mjs"), "utf8"),
@@ -75,15 +75,15 @@ describe("platform packagers", () => {
     expect(workflow).toContain("codexhost-cli-*-${{ matrix.target }}.tgz");
     expect(workflow).toContain("Build installer package");
     expect(workflow).toContain("if: runner.os != 'Linux'");
-    expect(workflow).toContain("target: linux-x64");
-    expect(workflow).toContain("runner: ubuntu-22.04");
+    expect(workflow).toContain('target: "linux-x64"');
+    expect(workflow).toContain('runner: "ubuntu-22.04"');
     expect(workflow).toContain(
       "--require-hashes --only-binary :all: -r scripts/release/linux-zigbuild-requirements.txt",
     );
-    expect(workflow).toContain("rustTarget: x86_64-unknown-linux-gnu");
-    expect(workflow).toContain("target: linux-arm64");
-    expect(workflow).toContain("runner: ubuntu-22.04-arm");
-    expect(workflow).toContain("rustTarget: aarch64-unknown-linux-gnu");
+    expect(workflow).toContain('rustTarget: "x86_64-unknown-linux-gnu"');
+    expect(workflow).toContain('target: "linux-arm64"');
+    expect(workflow).toContain('runner: "ubuntu-22.04-arm"');
+    expect(workflow).toContain('rustTarget: "aarch64-unknown-linux-gnu"');
     expect(workflow).toContain("Build npm package");
     expect(workflow).toContain("release:npm:meta");
     expect(workflow).toContain("release:npm:publish");
@@ -113,6 +113,53 @@ describe("platform packagers", () => {
     expect(releaseClient).toContain("size");
     expect(releaseClient).toContain("digest");
     expect(releaseClient).toContain("sha256:");
+  });
+
+  it.skipIf(process.platform !== "linux").each([
+    ["yinwusaya/codex-host", true, false],
+    ["BytePioneer-AI/codex-host", false, true],
+    ["example/codex-host", true, true],
+  ])("aligns the matrix and release assets for %s", async (repository, fork, macosX64) => {
+    const workflow = await readFile(
+      path.join(root, ".github/workflows/release-packages.yml"),
+      "utf8",
+    );
+    const matrixSource = workflow.slice(
+      workflow.indexOf("            const packageMatrix = ["),
+      workflow.indexOf("            await writeFile('release-notes.md'"),
+    );
+    let matrix;
+    new Function("context", "core", matrixSource)(
+      { payload: { repository: { full_name: repository } } },
+      {
+        setOutput: (_name, value) => {
+          matrix = JSON.parse(value);
+        },
+      },
+    );
+    const targets = ["macos-arm64", "windows-x64", "windows-arm64", "linux-x64", "linux-arm64"];
+    if (macosX64) targets.push("macos-x64");
+    expect(matrix.include.map(({ target }) => target).sort()).toEqual(targets.sort());
+    expect(matrix.include.every(({ runner, rustTarget }) => runner && rustTarget)).toBe(true);
+    expect(workflow).toContain("matrix: ${{ fromJSON(needs.prepare.outputs.package_matrix) }}");
+    const assetSource = workflow.slice(
+      workflow.indexOf("          expected=("),
+      workflow.indexOf("          files=()"),
+    );
+    const result = spawnSync("bash", ["-c", assetSource + '\nprintf "%s\\n" "${expected[@]}"'], {
+      encoding: "utf8",
+      env: { VERSION: "1.2.3", FORK_RELEASE: String(fork), GITHUB_REPOSITORY: repository },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const expected = targets
+      .filter((target) => !target.startsWith("linux-"))
+      .map((target) => `codexhost-1.2.3-${target}.${target.startsWith("macos-") ? "dmg" : "exe"}`);
+    if (fork)
+      expected.push(
+        "codexhost-cli-1.2.3.tgz",
+        ...targets.map((target) => `codexhost-cli-1.2.3-${target}.tgz`),
+      );
+    expect(result.stdout.trim().split("\n").sort()).toEqual(expected.sort());
   });
 
   it("prepares Windows process shutdown only after Install, using the bundled temporary helper", async () => {

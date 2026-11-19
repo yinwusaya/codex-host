@@ -53,7 +53,19 @@ const launcherStdout =
 it("installs fork platform dependencies from the same GitHub release, not npm", () => {
   const repository = "yinwusaya/codex-host";
   const manifest = createNpmMetaPackageManifest({ version: "1.2.3", repository });
-  expect(Object.values(manifest.optionalDependencies)).toHaveLength(6);
+  expect(Object.keys(manifest.optionalDependencies)).toEqual([
+    "@codexhost/cli-darwin-arm64",
+    "@codexhost/cli-win32-x64",
+    "@codexhost/cli-win32-arm64",
+    "@codexhost/cli-linux-x64",
+    "@codexhost/cli-linux-arm64",
+  ]);
+  for (const otherRepository of [undefined, "BytePioneer-AI/codex-host", "example/codex-host"]) {
+    const other = createNpmMetaPackageManifest({ version: "1.2.3", repository: otherRepository });
+    expect(Object.keys(other.optionalDependencies)).toEqual(
+      Object.values(NPM_PLATFORM_PACKAGE_NAMES),
+    );
+  }
   for (const source of Object.values(manifest.optionalDependencies)) {
     expect(source).toMatch(
       /^https:\/\/github\.com\/yinwusaya\/codex-host\/releases\/download\/v1\.2\.3\/codexhost-cli-1\.2\.3-(?:macos|windows|linux)-(?:x64|arm64)\.tgz$/u,

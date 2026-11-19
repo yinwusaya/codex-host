@@ -25,7 +25,7 @@ Recovery uses an existing, verified annotated tag and manual `Release packages` 
 
 ## Artifacts And Installation
 
-The fork Release contains four EXE/DMG installers, six platform npm tarballs, one CLI meta tarball, and `release-evidence.json`. Each platform payload includes its `version`, `distribution`, `target`, `repository` and full source `commit`. Build jobs stamp `CODEXHOST_RELEASE_REPOSITORY` and `CODEXHOST_RELEASE_COMMIT` from the workflow repository and verified commit, not from credentials or the build job's ambient checkout SHA.
+The fork Release contains three EXE/DMG installers, five platform npm tarballs, one CLI meta tarball, and `release-evidence.json`. `yinwusaya/codex-host` packages macOS arm64 and Windows/Linux x64 and arm64; macOS x64 is excluded from its build matrix, asset validation and npm meta dependencies. Generic macOS x64 support and upstream release behavior remain available; historical release assets are retained. Each platform payload includes its `version`, `distribution`, `target`, `repository` and full source `commit`. Build jobs stamp `CODEXHOST_RELEASE_REPOSITORY` and `CODEXHOST_RELEASE_COMMIT` from the workflow repository and verified commit, not from credentials or the build job's ambient checkout SHA.
 
 Use Node.js managed by the machine's version manager for npm installations. First-install example (replace `<version>` with an actually published version):
 
