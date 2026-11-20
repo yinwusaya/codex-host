@@ -39,12 +39,15 @@ describe("workflow and form contracts", () => {
 
   it("builds macOS packages on supported runners with matching architectures", async () => {
     const workflow = await read(".github/workflows/release-packages.yml");
-    expect(workflow).toMatch(
-      /- target: macos-arm64\s+runner: macos-26\s+rustTarget: aarch64-apple-darwin/u,
-    );
-    expect(workflow).toMatch(
-      /- target: macos-x64\s+runner: macos-15-intel\s+rustTarget: x86_64-apple-darwin/u,
-    );
+    const macosTargets = [
+      ...workflow.matchAll(
+        /\{ target: "(macos-[^"]+)", runner: "([^"]+)", rustTarget: "([^"]+)" \}/gu,
+      ),
+    ].map(([, target, runner, rustTarget]) => ({ target, runner, rustTarget }));
+    expect(macosTargets).toEqual([
+      { target: "macos-arm64", runner: "macos-26", rustTarget: "aarch64-apple-darwin" },
+      { target: "macos-x64", runner: "macos-15-intel", rustTarget: "x86_64-apple-darwin" },
+    ]);
   });
 
   it("cancels superseded PR runs without cancelling main release evidence", async () => {
