@@ -107,7 +107,7 @@ jobs:
               { target: "windows-arm64", runner: "windows-latest", rustTarget: "aarch64-pc-windows-msvc" },
               { target: "linux-x64", runner: "ubuntu-22.04", rustTarget: "x86_64-unknown-linux-gnu" },
               { target: "linux-arm64", runner: "ubuntu-22.04-arm", rustTarget: "aarch64-unknown-linux-gnu" },
-            ].filter(({ target }) => context.payload.repository.full_name.toLowerCase() !== 'yinwusaya/codex-host' || target !== 'macos-x64');
+            ].filter(({ target }) => context.payload.repository.full_name.toLowerCase() !== 'yinwusaya/codex-host' || !target.startsWith('macos-'));
             core.setOutput('package_matrix', JSON.stringify({ include: packageMatrix }));
             await writeFile('release-notes.md', result.notes);
             const { notes, ...evidence } = result;
@@ -208,14 +208,6 @@ jobs:
           --target ${{ matrix.target }}
           --version ${{ needs.prepare.outputs.version }}
 
-      - name: Build npm meta package
-        if: matrix.target == 'macos-arm64'
-        shell: bash
-        run: >
-          npm run release:npm:meta --
-          --version ${{ needs.prepare.outputs.version }}
-          --pack
-
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -224,7 +216,7 @@ jobs:
             build/release/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-*.dmg
             build/release/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-*.exe
             build/npm/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-cli-*-${{ matrix.target }}.tgz
-            build/npm/${{ needs.prepare.outputs.version }}/meta/codexhost-cli-${{ needs.prepare.outputs.version }}.tgz
+            ${{ matrix.target == 'linux-x64' && format('build/npm/{0}/meta/codexhost-cli-{0}.tgz', needs.prepare.outputs.version) || '' }}
           if-no-files-found: error
           retention-days: 7
 
@@ -384,17 +376,16 @@ jobs:
         run: |
           set -euo pipefail
           expected=(
-            "codexhost-${VERSION}-macos-arm64.dmg"
             "codexhost-${VERSION}-windows-x64.exe"
             "codexhost-${VERSION}-windows-arm64.exe"
           )
           if [[ "${GITHUB_REPOSITORY,,}" != "yinwusaya/codex-host" ]]; then
-            expected+=("codexhost-${VERSION}-macos-x64.dmg")
+            expected+=("codexhost-${VERSION}-macos-arm64.dmg" "codexhost-${VERSION}-macos-x64.dmg")
           fi
           if [[ "$FORK_RELEASE" == "true" ]]; then
             expected+=("codexhost-cli-${VERSION}.tgz")
             for target in macos-arm64 macos-x64 windows-x64 windows-arm64 linux-x64 linux-arm64; do
-              if [[ "${GITHUB_REPOSITORY,,}" == "yinwusaya/codex-host" && "$target" == "macos-x64" ]]; then
+              if [[ "${GITHUB_REPOSITORY,,}" == "yinwusaya/codex-host" && "$target" == macos-* ]]; then
                 continue
               fi
               expected+=("codexhost-cli-${VERSION}-${target}.tgz")

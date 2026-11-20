@@ -32,7 +32,7 @@ export function createNpmMetaPackageManifest({ version, repository }) {
       Object.entries(NPM_PLATFORM_PACKAGE_NAMES)
         .filter(
           ([target]) =>
-            repository?.toLowerCase() !== "yinwusaya/codex-host" || target !== "macos-x64",
+            repository?.toLowerCase() !== "yinwusaya/codex-host" || !target.startsWith("macos-"),
         )
         .map(([target, packageName]) => [
           packageName,

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { CI_JOBS, SHA } from "./policy.mjs";
+import { SHA, requiredCiJobs } from "./policy.mjs";
 import { readCi } from "./github.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -94,7 +94,7 @@ export async function readReleaseMetadata({ root, tag, expectedRefSha, releaseBr
   };
 }
 
-export function assertReleaseCi({ run, jobs }, sha, releaseBranch = "main") {
+export function assertReleaseCi({ run, jobs }, sha, releaseBranch = "main", repo) {
   if (!run || run.head_sha !== sha || run.event !== "push" || run.head_branch !== releaseBranch) {
     throw new Error(
       `release requires CI evidence from a ${releaseBranch} push at the exact release commit`,
@@ -103,7 +103,7 @@ export function assertReleaseCi({ run, jobs }, sha, releaseBranch = "main") {
   if (run.status !== "completed" || run.conclusion !== "success") {
     throw new Error(`release CI is not successful: ${run.conclusion ?? run.status}`);
   }
-  for (const name of CI_JOBS) {
+  for (const name of requiredCiJobs(repo)) {
     const matches = jobs.filter((job) => job.name === name);
     if (
       matches.length !== 1 ||
@@ -130,7 +130,7 @@ export async function waitForReleaseCi({
   const deadline = now() + timeoutMs;
   for (;;) {
     const ci = await read({ github, repo, sha, release: true, releaseBranch });
-    if (ci.run?.status === "completed") return assertReleaseCi(ci, sha, releaseBranch);
+    if (ci.run?.status === "completed") return assertReleaseCi(ci, sha, releaseBranch, repo);
     const remaining = deadline - now();
     if (remaining <= 0) {
       throw new Error(`timed out waiting for release CI at the exact release commit: ${sha}`);
@@ -157,6 +157,7 @@ export async function resolveRelease({
         await readCi({ github, repo, sha: metadata.sha, release: true, releaseBranch }),
         metadata.sha,
         releaseBranch,
+        repo,
       );
   return { ...metadata, ...evidence, ciSkipped: false };
 }
@@ -192,7 +193,7 @@ export async function verifyRelease({
   }
   if (skipCi === true) return { ciSkipped: true };
   const ci = await readCi({ github, repo, sha, release: true, releaseBranch });
-  const evidence = assertReleaseCi(ci, sha, releaseBranch);
+  const evidence = assertReleaseCi(ci, sha, releaseBranch, repo);
   if (
     String(evidence.ciRunId) !== String(ciRunId) ||
     String(evidence.ciRunAttempt) !== String(ciRunAttempt)

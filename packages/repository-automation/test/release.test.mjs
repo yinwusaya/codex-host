@@ -187,6 +187,20 @@ describe("exact-commit CI release gate", () => {
     expect(() => assertReleaseCi({ jobs: [] }, head)).toThrow("evidence");
   });
 
+  it("requires Linux and Windows CI on the personal fork without accepting old failed runs", () => {
+    const fork = { owner: "yinwusaya", repo: "codex-host" };
+    const run = ci();
+    const jobs = run.jobs.filter(({ name }) => name !== "Check macos-26");
+    expect(assertReleaseCi({ ...run, jobs }, head, "main", fork)).toMatchObject({ ciRunId: 42 });
+    expect(() => assertReleaseCi({ ...run, jobs }, head, "main", repo)).toThrow("Check macos-26");
+    expect(() => assertReleaseCi({ ...run, jobs: jobs.slice(1) }, head, "main", fork)).toThrow(
+      "Check ubuntu-22.04",
+    );
+    expect(() =>
+      assertReleaseCi({ run: { ...run.run, conclusion: "failure" }, jobs }, head, "main", fork),
+    ).toThrow("not successful");
+  });
+
   it.each(["failure", "cancelled", "skipped", "action_required", "timed_out", null])(
     "rejects %s CI even if an older run was green",
     (conclusion) => {

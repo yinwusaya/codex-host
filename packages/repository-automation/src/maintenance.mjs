@@ -64,7 +64,7 @@ export async function maintainItem({ github, repo, number, dryRun = false }) {
     for (const job of ci.jobs.filter((job) => job.conclusion === "failure").slice(0, 4)) {
       errors.set(job.id, await readJobErrors({ github, repo, job }));
     }
-    body = renderReport({ item, ci, errors });
+    body = renderReport({ item, ci, repo, errors });
   }
   if (dryRun) return { number, status: "预览，未写入 GitHub", labels, body };
   const labelsChanged = labels.add.length || labels.remove.length;

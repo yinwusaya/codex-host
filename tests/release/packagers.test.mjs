@@ -85,7 +85,7 @@ describe("platform packagers", () => {
     expect(workflow).toContain('runner: "ubuntu-22.04-arm"');
     expect(workflow).toContain('rustTarget: "aarch64-unknown-linux-gnu"');
     expect(workflow).toContain("Build npm package");
-    expect(workflow).toContain("release:npm:meta");
+    expect(workflow).toContain("matrix.target == 'linux-x64' && format('build/npm/{0}/meta/");
     expect(workflow).toContain("release:npm:publish");
     expect(workflow).toContain('--tag "$NPM_TAG"');
     expect(workflow).not.toContain("secrets.NPM_TOKEN");
@@ -119,7 +119,7 @@ describe("platform packagers", () => {
     ["yinwusaya/codex-host", true, false],
     ["BytePioneer-AI/codex-host", false, true],
     ["example/codex-host", true, true],
-  ])("aligns the matrix and release assets for %s", async (repository, fork, macosX64) => {
+  ])("aligns the matrix and release assets for %s", async (repository, fork, includeMacos) => {
     const workflow = await readFile(
       path.join(root, ".github/workflows/release-packages.yml"),
       "utf8",
@@ -137,8 +137,8 @@ describe("platform packagers", () => {
         },
       },
     );
-    const targets = ["macos-arm64", "windows-x64", "windows-arm64", "linux-x64", "linux-arm64"];
-    if (macosX64) targets.push("macos-x64");
+    const targets = ["windows-x64", "windows-arm64", "linux-x64", "linux-arm64"];
+    if (includeMacos) targets.push("macos-arm64", "macos-x64");
     expect(matrix.include.map(({ target }) => target).sort()).toEqual(targets.sort());
     expect(matrix.include.every(({ runner, rustTarget }) => runner && rustTarget)).toBe(true);
     expect(workflow).toContain("matrix: ${{ fromJSON(needs.prepare.outputs.package_matrix) }}");

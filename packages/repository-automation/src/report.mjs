@@ -1,4 +1,4 @@
-import { CI_JOBS, COMMENT_MARKER, STATE_PREFIX, githubLink, markdown } from "./policy.mjs";
+import { COMMENT_MARKER, STATE_PREFIX, githubLink, markdown, requiredCiJobs } from "./policy.mjs";
 
 export function ciFinished({ run, jobs }) {
   return Boolean(run?.status === "completed" && jobs.every((job) => job.status === "completed"));
@@ -25,7 +25,7 @@ function excerpt(lines) {
   return `\n\n${fence}text\n${text}\n${fence}`;
 }
 
-export function renderReport({ item, ci, errors = new Map() }) {
+export function renderReport({ item, ci, repo, errors = new Map() }) {
   if (!ciFinished(ci)) return null;
   const { run, jobs } = ci;
   const commit = githubLink(
@@ -36,7 +36,7 @@ export function renderReport({ item, ci, errors = new Map() }) {
     run.conclusion === "success" &&
     jobs.length > 0 &&
     jobs.every((job) => job.conclusion === "success") &&
-    CI_JOBS.every(
+    requiredCiJobs(repo).every(
       (name) =>
         jobs.filter((job) => job.name === name && job.conclusion === "success").length === 1,
     );

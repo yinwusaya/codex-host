@@ -17,6 +17,13 @@ describe("short terminal CI comments", () => {
     ).toHaveLength(1);
     expect(body).not.toMatch(/信息完整性|Validated commit|审查记录|规范风险|长期等待|Test plan/u);
   });
+  it("uses the owning repository's supported CI platforms", () => {
+    const state = ci();
+    state.jobs = state.jobs.filter(({ name }) => name !== "Check macos-26");
+    const repo = { owner: "yinwusaya", repo: "codex-host" };
+    expect(render(state)).not.toContain("CI 全部通过。");
+    expect(renderReport({ item: pr(), ci: state, repo })).toContain("CI 全部通过。");
+  });
   it.each(["queued", "in_progress", "waiting", "requested"])(
     "does not comment before CI ends: %s",
     (status) => {

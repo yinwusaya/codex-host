@@ -6,6 +6,12 @@ export const CI_JOBS = [
   "Check windows-latest",
   "Check Linux ARM64",
 ];
+
+export function requiredCiJobs(repo) {
+  return `${repo?.owner}/${repo?.repo}`.toLowerCase() === "yinwusaya/codex-host"
+    ? CI_JOBS.filter((name) => name !== "Check macos-26")
+    : CI_JOBS;
+}
 export const TYPE_LABELS = ["bug", "enhancement", "documentation"];
 export const LABELS = {
   bug: ["d73a4a", "缺陷报告 / Bug report"],

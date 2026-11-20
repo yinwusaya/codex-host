@@ -123,11 +123,12 @@ jobs:
   # Linux x64 owns native checks here; secondary OS lanes also test OS-sensitive TS.
   check:
     name: Check ${{ matrix.os }}
+    if: github.repository != 'yinwusaya/codex-host' || github.event_name != 'workflow_dispatch' || inputs.platform != 'macos-26'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform != 'all' && format('["{0}"]', inputs.platform) || '["ubuntu-22.04","macos-26","windows-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform != 'all' && format('["{0}"]', inputs.platform) || (github.repository == 'yinwusaya/codex-host' && '["ubuntu-22.04","windows-latest"]' || '["ubuntu-22.04","macos-26","windows-latest"]')) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

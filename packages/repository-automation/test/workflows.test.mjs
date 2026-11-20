@@ -35,6 +35,10 @@ describe("workflow and form contracts", () => {
       expect(workflow).toContain(`- ${name.slice("Check ".length)}\n`);
     }
     expect(workflow).toContain("name: Check Linux ARM64");
+    expect(workflow).toContain(
+      "github.repository == 'yinwusaya/codex-host' && '[\"ubuntu-22.04\",\"windows-latest\"]'",
+    );
+    expect(workflow).toContain("inputs.platform != 'macos-26'");
   });
 
   it("builds macOS packages on supported runners with matching architectures", async () => {
