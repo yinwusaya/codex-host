@@ -116,6 +116,7 @@ function presentedToken(
 
 export class AccessAuth {
   private readonly limit = new FailedSignInLimit();
+  private readonly providerLimit = new FailedSignInLimit();
   private readonly provider: ProviderConnections | undefined;
 
   constructor(
@@ -168,7 +169,35 @@ export class AccessAuth {
     pathname: string,
   ): Promise<{ handled: true } | { handled: false; auth: RequestAuth | undefined }> {
     const provider = this.provider;
-    const supplied = provider?.authenticate(request);
+    const secure = this.trust.secure(request);
+    if (
+      pathname === "/api/auth/provider/login" &&
+      request.method === "POST" &&
+      provider?.provider.browserLogin
+    ) {
+      const address = this.trust.clientAddress(request);
+      const limited = this.providerLimit.blocked(address);
+      const login = secure && !limited ? await provider.provider.browserLogin(request) : undefined;
+      request.resume();
+      if (login && /^\/(?:\?|$)/u.test(login.location)) {
+        this.trust.authenticated(request);
+        response
+          .writeHead(303, {
+            location: login.location,
+            "set-cookie": login.cookie,
+            "cache-control": "no-store",
+            "referrer-policy": "no-referrer",
+          })
+          .end();
+      } else {
+        if (secure && !limited) this.providerLimit.fail(address);
+        response
+          .writeHead(limited ? 429 : 403, { "cache-control": "no-store" })
+          .end("device sign-in rejected");
+      }
+      return { handled: true };
+    }
+    const supplied = provider?.authenticate(request, secure);
     if (supplied?.status === "denied") {
       request.resume();
       response.writeHead(401, { "cache-control": "no-store" }).end("authentication required");
@@ -181,6 +210,18 @@ export class AccessAuth {
         local: false,
         release: provider.track(supplied, response),
       };
+      if (
+        pathname === "/api/auth/logout" &&
+        request.method === "POST" &&
+        this.trust.sameOrigin(request)
+      ) {
+        auth.release();
+        const cookie = provider.provider.browserLogout?.(request);
+        if (cookie !== undefined) {
+          this.serveLogout(request, response, cookie);
+          return { handled: true };
+        }
+      }
       if (pathname === "/api/auth/login" || pathname === "/api/auth/logout") {
         request.resume();
         response.writeHead(403).end("provider authentication cannot issue cookies");
@@ -234,7 +275,7 @@ export class AccessAuth {
    */
   admitUpgrade(request: IncomingMessage, socket: Duplex): boolean {
     const provider = this.provider;
-    const supplied = provider?.authenticate(request);
+    const supplied = provider?.authenticate(request, this.trust.secure(request));
     if (supplied?.status === "authenticated" && provider !== undefined) {
       provider.track(supplied, socket);
       this.trust.authenticated(request);
@@ -314,14 +355,25 @@ export class AccessAuth {
     return true;
   }
 
-  private serveLogout(request: IncomingMessage, response: ServerResponse): void {
+  private serveLogout(
+    request: IncomingMessage,
+    response: ServerResponse,
+    providerCookie?: string,
+  ): void {
     request.resume();
     const sameOrigin = this.trust.sameOrigin(request);
     response
       .writeHead(sameOrigin ? 200 : 403, {
         "content-type": "application/json",
         "cache-control": "no-store",
-        ...(sameOrigin ? { "set-cookie": this.cookie(request, "", 0) } : {}),
+        ...(sameOrigin
+          ? {
+              "set-cookie": [
+                this.cookie(request, "", 0),
+                ...(providerCookie === undefined ? [] : [providerCookie]),
+              ],
+            }
+          : {}),
       })
       .end(JSON.stringify(sameOrigin ? { ok: true } : { error: { code: "auth/cross-origin" } }));
   }

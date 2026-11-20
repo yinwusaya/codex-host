@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, IncomingMessage } from "node:http";
+import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import WebSocket, { WebSocketServer } from "ws";
 import { AccessAuth, CredentialConnections } from "../src/auth.ts";
 import { AccessTokenStore } from "../src/access-tokens.ts";
-import { loadAuthenticationProvider, type AuthenticationProvider } from "../src/auth-provider.ts";
+import {
+  loadAuthenticationProvider,
+  ProviderConnections,
+  type AuthenticationProvider,
+} from "../src/auth-provider.ts";
 import { RequestTrust } from "../src/request-trust.ts";
 import { DataDir } from "../src/store.ts";
 
@@ -27,6 +32,29 @@ test("authentication provider is explicit and validates its module contract", as
   const invalid = join(root, "invalid.mjs");
   writeFileSync(invalid, "export default () => ({});");
   await assert.rejects(loadAuthenticationProvider(invalid, undefined));
+});
+
+test("only HTTPS browser admissions keep a connection beyond the request-proof cap", () => {
+  const expiresAt = Date.now() + 3_600_000;
+  const request = new IncomingMessage(new Socket());
+  let browserSession: true | undefined = true;
+  const connections = new ProviderConnections({
+    authenticate: () => ({
+      status: "authenticated",
+      credential: "fixture",
+      expiresAt,
+      ...(browserSession ? { browserSession } : {}),
+    }),
+    onRevoke() {},
+    dispose() {},
+  });
+  const direct = connections.authenticate(request, true);
+  const insecure = connections.authenticate(request, false);
+  browserSession = undefined;
+  const proxy = connections.authenticate(request, true);
+  assert.ok(direct.status === "authenticated" && direct.expiresAt === expiresAt);
+  assert.ok(insecure.status === "authenticated" && insecure.expiresAt < expiresAt);
+  assert.ok(proxy.status === "authenticated" && proxy.expiresAt < expiresAt);
 });
 
 test("HTTP and WebSocket share remote provider identity, fail closed, expire and revoke", async (t) => {

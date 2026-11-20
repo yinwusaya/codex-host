@@ -40,12 +40,20 @@ The module exports a default factory accepting `{ configFile?: string }`. It ret
 
 Authentication is synchronous and runs before ordinary HTTP authentication, including public assets, and during WebSocket admission. `not-applicable` preserves the existing Cookie/Bearer flow. `denied`, thrown exceptions, malformed results, and expired admissions reject the request without trying another identity. The factory may initialize asynchronously.
 
-The core prefixes provider credentials with `provider:`, always sets HTTP `RequestAuth.local` to `false`, and never issues or renews an access-token cookie for the provider. Signed requests to the login/logout cookie endpoints are rejected. Existing origin checks remain enforced; the provider cannot mark forwarding headers trusted or grant local status. A provider is trusted server code, not a sandbox: only install an administrator-reviewed module.
+The core prefixes provider credentials with `provider:`, always sets HTTP `RequestAuth.local` to `false`, and never issues or renews an access-token cookie for the provider. Provider requests cannot read or regenerate the Web access token. Signed requests to the ordinary cookie endpoints are rejected. Existing origin checks remain enforced; the provider cannot mark forwarding headers trusted or grant local status. A provider is trusted server code, not a sandbox: only install an administrator-reviewed module.
 
-Each admitted HTTP response and upgraded socket is tracked until close or release. The core caps connection admission at five minutes, independently of the request proof's validity window. Expiration destroys the connection; existing clients can reconnect through normal authentication. The provider calls its revocation listener with one credential or no argument for all of its connections. Disposing the core wrapper destroys all tracked connections and disposes the provider.
+Providers may opt in to browser sign-in with `browserLogin` and `browserLogout`. The trusted
+HTTPS-only `POST /api/auth/provider/login` route delegates proof and exact issuer-origin
+validation to the provider. A successful reply sets the provider's own cookie and redirects
+only to the device root (optionally with a query). Authentication receives the core's trusted
+HTTPS verdict as its second argument, for use when admitting provider cookies. Same-origin
+`POST /api/auth/logout` may revoke and clear a browser provider session, without granting
+signed proxy requests access to this operation.
+
+Each admitted HTTP response and upgraded socket is tracked until close or release. The core caps connection admission at five minutes for request proofs, or eight hours for `browserSession: true` admissions over trusted HTTPS, and never beyond the provider's expiration. Expiration destroys the connection; existing clients can reconnect through normal authentication. The provider calls its revocation listener with one credential or no argument for all of its connections. Disposing the core wrapper destroys all tracked connections and disposes the provider.
 
 ## Independent Manager Plugin
 
-`manager-access` lives in the separate CodexHost Manager project, not in this core. It verifies per-device Ed25519 public trust, short-lived request proofs, exact methods and targets, manager Origin and mount, and one-time nonces. The manager retains only its own generated private keys, never existing device tokens. Its deployment, rotation, proxy compatibility, and isolated checks are documented in that project's README. Direct access without manager headers retains the original token authentication.
+`manager-access` lives in the separate CodexHost Manager project, not in this core. It verifies per-device Ed25519 public trust, short-lived request proofs, exact methods and targets, manager Origin and mount, and one-time nonces. The manager retains only its own generated private keys, never existing device tokens. Its deployment, rotation, direct sign-in, proxy compatibility, and isolated checks are documented in that project's README. Direct access without a recognized provider session retains the original token authentication.
 
 The proxy still uses its existing path compatibility bridge. This provider does not add native mount-path support, PWA proxy support, separate browser Origins, model validation, or automatic production deployment.

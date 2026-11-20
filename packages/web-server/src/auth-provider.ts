@@ -5,11 +5,15 @@ import { pathToFileURL } from "node:url";
 export type ProviderAdmission =
   | { status: "not-applicable" }
   | { status: "denied" }
-  | { status: "authenticated"; credential: string; expiresAt: number };
+  | { status: "authenticated"; credential: string; expiresAt: number; browserSession?: true };
 
 /** Only explicitly configured server modules can participate in authentication. */
 export interface AuthenticationProvider {
-  authenticate(request: IncomingMessage): ProviderAdmission;
+  authenticate(request: IncomingMessage, secure?: boolean): ProviderAdmission;
+  browserLogin?(
+    request: IncomingMessage,
+  ): Promise<{ cookie: string; location: string } | undefined>;
+  browserLogout?(request: IncomingMessage): string | undefined;
   onRevoke(listener: (credential?: string) => void): void;
   dispose(): void;
 }
@@ -35,6 +39,8 @@ export async function loadAuthenticationProvider(
   if (
     !provider ||
     typeof provider.authenticate !== "function" ||
+    (provider.browserLogin !== undefined && typeof provider.browserLogin !== "function") ||
+    (provider.browserLogout !== undefined && typeof provider.browserLogout !== "function") ||
     typeof provider.onRevoke !== "function" ||
     typeof provider.dispose !== "function"
   )
@@ -52,9 +58,9 @@ export class ProviderConnections {
     });
   }
 
-  authenticate(request: IncomingMessage): ProviderAdmission {
+  authenticate(request: IncomingMessage, secure: boolean): ProviderAdmission {
     try {
-      const result = this.provider.authenticate(request);
+      const result = this.provider.authenticate(request, secure);
       if (result.status === "not-applicable" || result.status === "denied") return result;
       if (
         result.status === "authenticated" &&
@@ -63,8 +69,10 @@ export class ProviderConnections {
         result.credential.length <= 256 &&
         Number.isFinite(result.expiresAt) &&
         result.expiresAt > Date.now()
-      )
-        return { ...result, expiresAt: Math.min(result.expiresAt, Date.now() + 300_000) };
+      ) {
+        const maxAge = secure && result.browserSession === true ? 28_800_000 : 300_000;
+        return { ...result, expiresAt: Math.min(result.expiresAt, Date.now() + maxAge) };
+      }
     } catch {
       // A broken provider must not downgrade a signed request to another identity.
     }

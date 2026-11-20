@@ -35,13 +35,21 @@ export function registerAccessTokenRpc(
     const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(args);
     return setTailscaleServe(listener.port(), enabled);
   });
-  rpc.register("codexhost/accessTokenGet", async (): Promise<WebAccessState> => {
+  rpc.register("codexhost/accessTokenGet", async (_args, context): Promise<WebAccessState> => {
+    if (context.auth?.credential.startsWith("provider:"))
+      throw new RpcError("auth/forbidden", "Provider sessions cannot read the access token", {});
     const store = managedAccessTokens(tokens);
     return { ...store.current(), ...(await listener.access()) };
   });
   rpc.register(
     "codexhost/accessTokenRegenerate",
     async (_args, context): Promise<WebAccessState> => {
+      if (context.auth?.credential.startsWith("provider:"))
+        throw new RpcError(
+          "auth/forbidden",
+          "Provider sessions cannot regenerate the access token",
+          {},
+        );
       const store = managedAccessTokens(tokens);
       // A browser may be signed in with the token it replaces; keep its response open and rotate
       // its cookie so the caller stays signed in while every other session is revoked.
