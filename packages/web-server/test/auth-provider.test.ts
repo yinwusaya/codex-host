@@ -103,8 +103,19 @@ test("HTTP and WebSocket share remote provider identity, fail closed, expire and
   });
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
-    if (auth.admitUpgrade(request, socket))
-      wss.handleUpgrade(request, socket, head, (ws) => ws.send("admitted"));
+    let revokeDirect = (): void => {
+      socket.destroy();
+    };
+    const credential = auth.admitUpgrade(
+      request,
+      socket,
+      request.url === "/signaling" ? () => revokeDirect() : undefined,
+    );
+    if (credential)
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        revokeDirect = () => ws.close(4000, "revoked");
+        ws.send(credential);
+      });
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -145,7 +156,11 @@ test("HTTP and WebSocket share remote provider identity, fail closed, expire and
   t.after(() => ws.terminate());
   const message = once(ws, "message");
   await once(ws, "open");
-  assert.equal(String((await message)[0]), "admitted");
+  assert.equal(String((await message)[0]), "provider:remote-session");
+  const signaling = new WebSocket(base.replace("http:", "ws:") + "/signaling", { headers });
+  t.after(() => signaling.terminate());
+  await once(signaling, "open");
+  const signalingClosed = once(signaling, "close");
   const stream = await fetch(base + "/stream", { headers });
   assert.ok(stream.body);
   const reader = stream.body.getReader();
@@ -155,6 +170,7 @@ test("HTTP and WebSocket share remote provider identity, fail closed, expire and
   revoke("remote-session");
   await closed;
   await ended;
+  assert.equal((await signalingClosed)[0], 4000);
   expiry = 80;
   const expiring = new WebSocket(base.replace("http:", "ws:") + "/events", { headers });
   t.after(() => expiring.terminate());

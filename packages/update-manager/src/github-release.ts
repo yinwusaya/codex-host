@@ -1,4 +1,11 @@
+import {
+  releaseAnnouncementSchema,
+  updateSemanticVersionSchema,
+  type ReleaseAnnouncement,
+} from "@codexhost/shared-contracts";
+
 import type { ArtifactSource } from "./artifact.js";
+import { parseReleaseAnnouncementMarkdown } from "./release-announcement.js";
 import { requireSemanticVersion } from "./status.js";
 
 export const CODEXHOST_LATEST_RELEASE_URL =
@@ -122,8 +129,15 @@ export function parseLatestGitHubRelease(
 export async function fetchLatestGitHubRelease(
   options: GitHubReleaseFetchOptions = {},
 ): Promise<CodexhostLatestRelease> {
+  const response = await requestGitHubRelease(latestReleaseUrl(options.repository), options);
+  if (!response.ok)
+    throw new Error(`GitHub latest Release request failed with HTTP ${response.status}`);
+  return parseLatestGitHubRelease(await response.json(), options.repository);
+}
+
+function requestGitHubRelease(url: string, options: GitHubReleaseFetchOptions): Promise<Response> {
   const fetchImpl = options.fetch ?? fetch;
-  const response = await fetchImpl(latestReleaseUrl(options.repository), {
+  return fetchImpl(url, {
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "codexhost-updater",
@@ -132,9 +146,43 @@ export async function fetchLatestGitHubRelease(
     redirect: "error",
     ...(options.signal ? { signal: options.signal } : {}),
   });
-  if (!response.ok)
-    throw new Error(`GitHub latest Release request failed with HTTP ${response.status}`);
-  return parseLatestGitHubRelease(await response.json(), options.repository);
+}
+
+/** Read the formal Release for this exact version; missing or unusable notes are not an error. */
+export async function fetchGitHubReleaseAnnouncement(
+  version: string,
+  options: GitHubReleaseFetchOptions = {},
+): Promise<ReleaseAnnouncement | null> {
+  if (!updateSemanticVersionSchema.safeParse(version).success) return null;
+  const tag = `v${version}`;
+  const timeout = AbortSignal.timeout(15_000);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  try {
+    const repository = requireReleaseRepository(options.repository ?? UPSTREAM_RELEASE_REPOSITORY);
+    const response = await requestGitHubRelease(
+      `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`,
+      { ...options, signal },
+    );
+    if (!response.ok) return null;
+    const release = record(await response.json(), "GitHub Release by tag");
+    if (
+      release.draft !== false ||
+      release.prerelease !== false ||
+      release.tag_name !== tag ||
+      release.html_url !== `https://github.com/${repository}/releases/tag/${tag}` ||
+      typeof release.body !== "string"
+    )
+      return null;
+    const parsed = releaseAnnouncementSchema.safeParse({
+      version,
+      url: release.html_url,
+      publishedAt: release.published_at,
+      ...parseReleaseAnnouncementMarkdown(release.body),
+    });
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 function numericIdentifiers(value: string): [number, number, number] {

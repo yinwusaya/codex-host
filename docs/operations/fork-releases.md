@@ -25,7 +25,7 @@ Recovery uses an existing, verified annotated tag and manual `Release packages` 
 
 ## Artifacts And Installation
 
-The fork Release contains two Windows EXE installers, four Windows/Linux x64 and arm64 npm tarballs, one CLI meta tarball, and `release-evidence.json`. `yinwusaya/codex-host` excludes both macOS targets from its build matrix, asset validation, and npm meta dependencies. Upstream macOS support and historical release assets are unchanged. Each platform payload includes its `version`, `distribution`, `target`, `repository` and full source `commit`. Build jobs stamp `CODEXHOST_RELEASE_REPOSITORY` and `CODEXHOST_RELEASE_COMMIT` from the workflow repository and verified commit, not from credentials or the build job's ambient checkout SHA.
+The fork Release contains two Windows EXE installers, four Windows/Linux x64 and arm64 npm tarballs, one CLI meta tarball, and `release-evidence.json`. `yinwusaya/codex-host` excludes both macOS targets from its build matrix, asset validation, and npm meta dependencies. It does not build or require a signed Android APK. Upstream macOS support and historical release assets are unchanged. Each platform payload includes its `version`, `distribution`, `target`, `repository` and full source `commit`. Build jobs stamp `CODEXHOST_RELEASE_REPOSITORY` and `CODEXHOST_RELEASE_COMMIT` from the workflow repository and verified commit, not from credentials or the build job's ambient checkout SHA.
 
 Use Node.js managed by the machine's version manager for npm installations. First-install example (replace `<version>` with an actually published version):
 

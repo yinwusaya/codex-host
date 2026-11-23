@@ -271,34 +271,42 @@ export class AccessAuth {
 
   /**
    * Authenticate a WebSocket upgrade and tie the socket to its credential.
-   * @returns whether the upgrade may proceed; otherwise the socket has been answered and closed.
+   * @returns the credential; otherwise the socket has been answered and closed.
+   * A signaling upgrade tracks its session instead, so revocation stops direct writes first.
    */
-  admitUpgrade(request: IncomingMessage, socket: Duplex): boolean {
+  admitUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    revokeDirect?: () => void,
+  ): string | undefined {
     const provider = this.provider;
     const supplied = provider?.authenticate(request, this.trust.secure(request));
     if (supplied?.status === "authenticated" && provider !== undefined) {
-      provider.track(supplied, socket);
+      const connection = revokeDirect
+        ? { destroy: revokeDirect, once: socket.once.bind(socket) }
+        : socket;
+      provider.track(supplied, connection);
       this.trust.authenticated(request);
-      return true;
+      return `provider:${supplied.credential}`;
     }
     if (supplied?.status === "denied") {
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-      return false;
+      return undefined;
     }
     const presented = presentedToken(request, this.trust.secure(request));
     const credential =
       presented === undefined ? undefined : this.credentialFor(presented.token, request);
     if (credential !== undefined) {
-      this.connections.track(credential, socket);
+      if (!revokeDirect) this.connections.track(credential, socket);
       this.trust.authenticated(request);
-      return true;
+      return credential;
     }
     const status = presented === undefined ? 401 : this.countFailure(request);
     socket.write(
       `HTTP/1.1 ${status === 429 ? "429 Too Many Requests" : "401 Unauthorized"}\r\nConnection: close\r\n\r\n`,
     );
     socket.destroy();
-    return false;
+    return undefined;
   }
 
   private admit(

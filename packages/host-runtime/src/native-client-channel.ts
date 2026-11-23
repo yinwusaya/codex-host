@@ -27,6 +27,7 @@ export type NativeClientReply =
 export interface NativeClientChannelDependencies {
   readonly events: ClientChannelEvents;
   readonly asyncQuestions?: NativeAsyncQuestions;
+  refreshBeforeRequest?(): Promise<void> | undefined;
   request(method: string, params: JsonObject): Promise<NativeClientReply>;
   respond(
     requestId: string | number,
@@ -516,6 +517,18 @@ export class NativeClientChannel {
   }
 
   async request(method: string, params: JsonObject): Promise<NativeClientReply> {
+    const refreshing = this.#host.refreshBeforeRequest?.();
+    if (refreshing) {
+      try {
+        await refreshing;
+      } catch {
+        return { error: { code: -32090, message: "Native Codex is unavailable" } };
+      }
+    }
+    return this.#request(method, params);
+  }
+
+  async #request(method: string, params: JsonObject): Promise<NativeClientReply> {
     const generation = this.#generationToken;
     const stale = (): NativeClientReply => ({
       error: {
@@ -531,7 +544,7 @@ export class NativeClientChannel {
       return sendNativeQueuedMessage(
         (method, params) =>
           generation === this.#generationToken
-            ? this.request(method, params)
+            ? this.#request(method, params)
             : Promise.resolve(stale()),
         threadId,
         params.itemId,
@@ -540,7 +553,7 @@ export class NativeClientChannel {
     if (method === "codexhost/thread/inspect") {
       if (!threadId) return { error: { code: -32602, message: "threadId is required" } };
       if (!this.#configuration.has(threadId)) {
-        await this.request("thread/resume", { threadId, excludeTurns: true });
+        await this.#request("thread/resume", { threadId, excludeTurns: true });
       }
       return {
         result: jsonValueSchema.parse({
@@ -561,7 +574,7 @@ export class NativeClientChannel {
       return submitNativeQueuedInput(
         (method, params) =>
           generation === this.#generationToken
-            ? this.request(method, params)
+            ? this.#request(method, params)
             : Promise.resolve(stale()),
         params,
       );
@@ -631,6 +644,12 @@ export class NativeClientChannel {
   }
 
   async snapshot(threadId: string, options: ClientSnapshotOptions): Promise<ClientThreadSnapshot> {
+    const refreshing = this.#host.refreshBeforeRequest?.();
+    if (refreshing) {
+      await refreshing.catch(() => {
+        throw new ClientChannelRequestError(-32090, "Native Codex is unavailable");
+      });
+    }
     const cursor = this.#host.events.cursor;
     const generation = this.#generationToken;
     const assertGeneration = () => {
@@ -640,7 +659,7 @@ export class NativeClientChannel {
     try {
       let nativeSendError: string | undefined;
       if (!this.#resumedThreads.has(threadId)) {
-        const resumed = await this.request("thread/resume", { threadId, excludeTurns: true });
+        const resumed = await this.#request("thread/resume", { threadId, excludeTurns: true });
         assertGeneration();
         if ("error" in resumed) {
           if (
@@ -653,7 +672,7 @@ export class NativeClientChannel {
           else throw new ClientChannelRequestError(resumed.error.code, resumed.error.message);
         }
       }
-      const read = await this.request("thread/read", { threadId, includeTurns: false });
+      const read = await this.#request("thread/read", { threadId, includeTurns: false });
       assertGeneration();
       if ("error" in read) throw new ClientChannelRequestError(read.error.code, read.error.message);
       const thread = resultThread(read);
@@ -661,7 +680,7 @@ export class NativeClientChannel {
         throw new Error("Native Codex did not return the requested Thread");
       if (typeof thread.modelProvider !== "string" || thread.modelProvider.length === 0)
         throw new Error("Native Codex Thread has no modelProvider");
-      const turnsReply = await this.request("thread/turns/list", {
+      const turnsReply = await this.#request("thread/turns/list", {
         threadId,
         limit: 5,
         sortDirection: "desc",
@@ -715,7 +734,7 @@ export class NativeClientChannel {
           prefix,
           (method, params) =>
             generation === this.#generationToken
-              ? this.request(method, params)
+              ? this.#request(method, params)
               : Promise.resolve({
                   error: { code: -32094, message: "Host generation changed; refresh the Thread" },
                 }),

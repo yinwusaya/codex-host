@@ -17,6 +17,7 @@ export {
   CODEXHOST_LATEST_RELEASE_URL,
   compareSemanticVersions,
   expectedInstallerAssetName,
+  fetchGitHubReleaseAnnouncement,
   fetchLatestGitHubRelease,
   parseLatestGitHubRelease,
   selectInstallerReleaseArtifact,
@@ -31,6 +32,7 @@ export {
   type InstallerReleaseTarget,
   type SelectedReleaseArtifact,
 } from "./github-release.js";
+export { parseReleaseAnnouncementMarkdown } from "./release-announcement.js";
 export {
   fetchLatestGitHubReleaseWithGitHubCli,
   type GitHubCliReleaseFetchOptions,

@@ -41,7 +41,7 @@ describe("workflow and form contracts", () => {
     expect(workflow).toContain("inputs.platform != 'macos-26'");
   });
 
-  it("builds macOS packages on supported runners with matching architectures", async () => {
+  it("builds both macOS targets on Apple Silicon runners", async () => {
     const workflow = await read(".github/workflows/release-packages.yml");
     const macosTargets = [
       ...workflow.matchAll(
@@ -50,7 +50,7 @@ describe("workflow and form contracts", () => {
     ].map(([, target, runner, rustTarget]) => ({ target, runner, rustTarget }));
     expect(macosTargets).toEqual([
       { target: "macos-arm64", runner: "macos-26", rustTarget: "aarch64-apple-darwin" },
-      { target: "macos-x64", runner: "macos-15-intel", rustTarget: "x86_64-apple-darwin" },
+      { target: "macos-x64", runner: "macos-26", rustTarget: "x86_64-apple-darwin" },
     ]);
   });
 
@@ -107,6 +107,17 @@ describe("workflow and form contracts", () => {
     expect(workflow).toContain(
       "needs.prepare.outputs.fork_release == 'true' && needs.publish-npm.result == 'skipped'",
     );
+    const android = workflow.slice(
+      workflow.indexOf("  android-apk:"),
+      workflow.indexOf("  publish-release:"),
+    );
+    expect(android).toContain("github.repository != 'yinwusaya/codex-host'");
+    expect(workflow).toContain(
+      "github.repository == 'yinwusaya/codex-host' && needs.android-apk.result == 'skipped'",
+    );
+    expect(workflow).toMatch(
+      /if \[\[ "\$\{GITHUB_REPOSITORY,,\}" != "yinwusaya\/codex-host" \]\]; then\s+expected\+=\([^\n]+\)\s+expected\+=\("codexhost-\$\{VERSION\}-android\.apk"\)/u,
+    );
     const ci = await read(".github/workflows/ci.yml");
     expect(ci).toMatch(/branches:\s+- main\s+- dev/u);
     expect(ci).not.toContain("upstream-sync");
@@ -144,7 +155,7 @@ describe("workflow and form contracts", () => {
     const workflow = await read(".github/workflows/release-packages.yml");
     expect(workflow).not.toContain("ref: ${{ needs.prepare.outputs.tag }}");
     expect(workflow.match(/ref: \$\{\{ needs\.prepare\.outputs\.commit_sha \}\}/gu)).toHaveLength(
-      3,
+      4,
     );
     expect(
       workflow.match(/ref: \$\{\{ needs\.prepare\.outputs\.automation_sha \}\}/gu),
