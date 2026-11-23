@@ -55,6 +55,8 @@ fn resolve_options(
     host_node: Option<PathBuf>,
 ) -> Result<Options, Box<dyn Error>> {
     let installed = InstalledResources::from_current_executable()?;
+    #[cfg(not(target_os = "macos"))]
+    let host_node = host_node.or_else(|| node.clone());
     let node = node
         .or_else(|| env::var_os(NPM_NODE_PATH_ENV).map(PathBuf::from))
         .unwrap_or(installed.node);
