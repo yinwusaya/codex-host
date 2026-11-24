@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type {
   CommonUpdateOptions,
+  LinuxArchiveUpdateOptions,
   MacOsDmgUpdateOptions,
   NpmUpdateOptions,
   WindowsInstallerUpdateOptions,
@@ -38,7 +39,8 @@ export interface InstalledUpdateContext {
   installation:
     | { kind: "npm"; options: NpmUpdateOptions }
     | { kind: "windows-installer"; options: Omit<WindowsInstallerUpdateOptions, "artifact"> }
-    | { kind: "macos-dmg"; options: Omit<MacOsDmgUpdateOptions, "artifact"> };
+    | { kind: "macos-dmg"; options: Omit<MacOsDmgUpdateOptions, "artifact"> }
+    | { kind: "linux-archive"; options: Omit<LinuxArchiveUpdateOptions, "artifact"> };
 }
 
 interface ResolveInstalledUpdateContextOptions {
@@ -224,5 +226,15 @@ export async function resolveInstalledUpdateContext(
       },
     };
   }
-  throw new Error("installer updates require Windows or macOS");
+  if (platform === "linux") {
+    return {
+      metadata,
+      common,
+      installation: {
+        kind: "linux-archive",
+        options: { ...common, installRoot: installationRoot },
+      },
+    };
+  }
+  throw new Error("installer updates require Windows, macOS, or Linux");
 }

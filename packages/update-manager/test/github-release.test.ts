@@ -35,12 +35,16 @@ function release(overrides: Record<string, unknown> = {}) {
 }
 
 describe("GitHub Release update discovery", () => {
-  it("pins fork discovery and both npm artifacts to the installed repository", async () => {
+  it("pins fork discovery and update artifacts to the installed repository", async () => {
     const repository = "yinwusaya/codex-host";
     const base = `https://github.com/${repository}/releases`;
     const data = release({
       html_url: `${base}/tag/v1.2.3`,
-      assets: ["codexhost-cli-1.2.3.tgz", "codexhost-cli-1.2.3-linux-x64.tgz"].map((name) => ({
+      assets: [
+        "codexhost-cli-1.2.3.tgz",
+        "codexhost-cli-1.2.3-linux-x64.tgz",
+        "codexhost-1.2.3-windows-x64.exe",
+      ].map((name) => ({
         name,
         size: 42,
         digest: `sha256:${"ab".repeat(32)}`,
@@ -54,6 +58,12 @@ describe("GitHub Release update discovery", () => {
     );
     expect(selectNpmReleaseArtifacts(parsed, "linux-x64", repository).platform.url).toBe(
       `${base}/download/v1.2.3/codexhost-cli-1.2.3-linux-x64.tgz`,
+    );
+    expect(selectInstallerReleaseArtifact(parsed, "windows-x64", repository).source.url).toBe(
+      `${base}/download/v1.2.3/codexhost-1.2.3-windows-x64.exe`,
+    );
+    expect(() => selectInstallerReleaseArtifact(parsed, "windows-x64")).toThrow(
+      "unexpected download URL",
     );
     expect(() => parseLatestGitHubRelease(release(), repository)).toThrow("does not match");
     expect(() => selectNpmReleaseArtifacts(parsed, "linux-arm64", repository)).toThrow(
@@ -84,6 +94,9 @@ describe("GitHub Release update discovery", () => {
     });
     expect(expectedInstallerAssetName("1.2.3", "macos-arm64")).toBe(
       "codexhost-1.2.3-macos-arm64.dmg",
+    );
+    expect(expectedInstallerAssetName("1.2.3", "linux-x64")).toBe(
+      "codexhost-1.2.3-linux-x64.tar.gz",
     );
   });
 

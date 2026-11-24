@@ -31,8 +31,8 @@ function downloadUrlPrefix(repository: string): string {
   return `https://github.com/${requireReleaseRepository(repository)}/releases/download/`;
 }
 
-export type InstallerReleaseTarget = "macos-arm64" | "macos-x64" | "windows-x64" | "windows-arm64";
-export type ReleaseTarget = InstallerReleaseTarget | "linux-x64" | "linux-arm64";
+export type ReleaseTarget =
+  "macos-arm64" | "macos-x64" | "windows-x64" | "windows-arm64" | "linux-x64" | "linux-arm64";
 
 export interface CodexhostLatestRelease {
   version: string;
@@ -222,18 +222,19 @@ export function compareSemanticVersions(leftValue: string, rightValue: string): 
   return 0;
 }
 
-export function expectedInstallerAssetName(
-  version: string,
-  target: InstallerReleaseTarget,
-): string {
+export function expectedInstallerAssetName(version: string, target: ReleaseTarget): string {
   requireSemanticVersion(version);
-  const extension = target.startsWith("macos-") ? "dmg" : "exe";
+  const extension = target.startsWith("macos-")
+    ? "dmg"
+    : target.startsWith("windows-")
+      ? "exe"
+      : "tar.gz";
   return `codexhost-${version}-${target}.${extension}`;
 }
 
 export function selectInstallerReleaseArtifact(
   release: CodexhostLatestRelease,
-  target: InstallerReleaseTarget,
+  target: ReleaseTarget,
   repository = UPSTREAM_RELEASE_REPOSITORY,
 ): SelectedReleaseArtifact {
   const name = expectedInstallerAssetName(release.version, target);

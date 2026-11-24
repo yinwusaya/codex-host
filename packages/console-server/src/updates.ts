@@ -3,6 +3,7 @@ import { dataDirectory } from "./paths.js";
 
 import type {
   UpdateCheckResult,
+  UpdateInstallation,
   UpdateStartResult,
   UpdateStatus,
   UpdateStatusResult,
@@ -27,7 +28,6 @@ import {
   type CodexhostLatestRelease,
   type CommonUpdateOptions,
   type DistributionMetadata,
-  type InstallerReleaseTarget,
   type PreparedBackgroundUpdate,
 } from "@codexhost/update-manager";
 
@@ -95,13 +95,11 @@ function publicStatus(status: BackgroundUpdateStatus): UpdateStatus {
   };
 }
 
-function installationKind(
-  metadata: DistributionMetadata,
-): "npm" | "windows-installer" | "macos-dmg" | null {
+function installationKind(metadata: DistributionMetadata): UpdateInstallation {
   if (metadata.distribution === "npm") return "npm";
   if (metadata.target.startsWith("windows-")) return "windows-installer";
   if (metadata.target.startsWith("macos-")) return "macos-dmg";
-  return null;
+  return "linux-archive";
 }
 
 function absoluteEnvironmentPath(environment: NodeJS.ProcessEnv, name: string): string {
@@ -157,18 +155,13 @@ export function createConsoleUpdates(options: CreateConsoleUpdatesOptions): Cons
 
   function installable(metadata: DistributionMetadata, release: CodexhostLatestRelease): boolean {
     const kind = installationKind(metadata);
-    if (kind === null) return false;
     try {
       if (kind === "npm") {
         if (metadata.repository && metadata.repository !== UPSTREAM_RELEASE_REPOSITORY)
           selectNpmReleaseArtifacts(release, metadata.target, metadata.repository);
         return true;
       }
-      selectInstallerReleaseArtifact(
-        release,
-        metadata.target as InstallerReleaseTarget,
-        metadata.repository,
-      );
+      selectInstallerReleaseArtifact(release, metadata.target, metadata.repository);
       return true;
     } catch {
       return false;
@@ -217,16 +210,16 @@ export function createConsoleUpdates(options: CreateConsoleUpdatesOptions): Cons
         npmLauncherPath: absoluteEnvironmentPath(environment, "CODEXHOST_NPM_LAUNCHER_PATH"),
       });
     }
-    if (kind === null) {
-      throw new ConsoleUpdateError("unsupported", "Linux installer updates are unsupported");
-    }
     const artifact = selectInstallerReleaseArtifact(
       release,
-      metadata.target as InstallerReleaseTarget,
+      metadata.target,
       metadata.repository,
     ).source;
     if (kind === "windows-installer") {
       return manager.prepareWindowsInstaller({ ...common, artifact, installRoot: resourcesRoot });
+    }
+    if (kind === "linux-archive") {
+      return manager.prepareLinuxArchive({ ...common, artifact, installRoot: resourcesRoot });
     }
     // Contents/Resources/app → the .app bundle.
     const appPath = path.dirname(path.dirname(resourcesRoot));

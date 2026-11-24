@@ -208,6 +208,10 @@ jobs:
           --target ${{ matrix.target }}
           --version ${{ needs.prepare.outputs.version }}
 
+      - name: Build Linux archive
+        if: runner.os == 'Linux' && needs.prepare.outputs.fork_release != 'true'
+        run: npm run release:package -- --target ${{ matrix.target }}
+
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -215,6 +219,7 @@ jobs:
           path: |
             build/release/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-*.dmg
             build/release/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-*.exe
+            build/release/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-*.tar.gz
             build/npm/${{ needs.prepare.outputs.version }}/${{ matrix.target }}/codexhost-cli-*-${{ matrix.target }}.tgz
             ${{ matrix.target == 'linux-x64' && format('build/npm/{0}/meta/codexhost-cli-{0}.tgz', needs.prepare.outputs.version) || '' }}
           if-no-files-found: error
@@ -435,6 +440,9 @@ jobs:
             "codexhost-${VERSION}-windows-x64.exe"
             "codexhost-${VERSION}-windows-arm64.exe"
           )
+          if [[ "$FORK_RELEASE" != "true" ]]; then
+            expected+=("codexhost-${VERSION}-linux-x64.tar.gz" "codexhost-${VERSION}-linux-arm64.tar.gz")
+          fi
           if [[ "${GITHUB_REPOSITORY,,}" != "yinwusaya/codex-host" ]]; then
             expected+=("codexhost-${VERSION}-macos-arm64.dmg" "codexhost-${VERSION}-macos-x64.dmg")
             expected+=("codexhost-${VERSION}-android.apk")
