@@ -150,11 +150,12 @@ describe("release Payload", () => {
       );
       const linuxPaths = expectedPayloadPaths(releaseTarget("linux-arm64"));
       expect(linuxPaths).toHaveLength(
-        33 +
+        34 +
           preinstalledHarnessPluginPaths().length +
           expectedWebPaths(releaseTarget("linux-arm64")).length,
       );
       expect(linuxPaths).toContain("runtime/node");
+      expect(linuxPaths).toContain("licenses/yaml-LICENSE.txt");
       expect(linuxPaths).toContain(
         "app/web-modules/node_modules/node-pty/prebuilds/linux-arm64/pty.node",
       );

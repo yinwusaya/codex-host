@@ -592,6 +592,7 @@ mod tests {
                     npm_cli_path: path.clone(),
                     npm_launcher_path: path.clone(),
                     npm_package_root: path,
+                    artifacts: None,
                 }),
             }
         }
