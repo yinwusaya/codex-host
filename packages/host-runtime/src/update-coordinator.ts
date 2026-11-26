@@ -9,6 +9,7 @@ import {
   cleanupTerminalUpdateState,
   compareSemanticVersions,
   createBackgroundUpdateManager,
+  createNpmReleaseAvailability,
   discoverActiveUpdateStatus,
   discoverRecentCompletedUpdateStatus,
   fetchLatestGitHubRelease,
@@ -23,6 +24,7 @@ import {
   type BackgroundUpdateStatus,
   type CodexhostLatestRelease,
   type InstalledUpdateContext,
+  type NpmReleaseAvailability,
 } from "@codexhost/update-manager";
 
 const ERROR_MAX_LENGTH = 500;
@@ -40,6 +42,7 @@ export interface CreateHostUpdateCoordinatorOptions {
   architecture?: string;
   manager?: BackgroundUpdateManager;
   fetchLatest?(signal?: AbortSignal): Promise<CodexhostLatestRelease>;
+  npmRelease?: NpmReleaseAvailability;
 }
 
 function boundedError(error: unknown): string {
@@ -67,6 +70,7 @@ export function createHostUpdateCoordinator(
 ): HostUpdateCoordinator {
   const platform = options.platform ?? process.platform;
   const manager = options.manager ?? createBackgroundUpdateManager({ platform });
+  const npmRelease = options.npmRelease ?? createNpmReleaseAvailability();
   let contextPromise: Promise<InstalledUpdateContext> | undefined;
   const installedContext = (): Promise<InstalledUpdateContext> => {
     contextPromise ??= resolveInstalledUpdateContext({
@@ -109,24 +113,44 @@ export function createHostUpdateCoordinator(
     return status ? publicStatus(status) : null;
   }
 
+  /**
+   * Whether this installation can install the release now. `error` is set when that cannot
+   * be determined or never will be; `false` without an error means the release is not yet in
+   * the npm registry this installation updates from, and is offered once it is.
+   */
   async function installable(
     context: InstalledUpdateContext,
     release: CodexhostLatestRelease,
-  ): Promise<boolean> {
-    const target = context.metadata.target;
+  ): Promise<{ available: boolean; error: string | null }> {
     try {
       if (context.installation.kind === "npm") {
+        const npm = context.installation.options;
         if (
           context.metadata.repository &&
           context.metadata.repository !== UPSTREAM_RELEASE_REPOSITORY
-        )
-          selectNpmReleaseArtifacts(release, target, context.metadata.repository);
-        return true;
+        ) {
+          selectNpmReleaseArtifacts(release, context.metadata.target, context.metadata.repository);
+          return { available: true, error: null };
+        }
+        try {
+          const available = await npmRelease.installable({
+            nodePath: npm.nodePath,
+            npmCliPath: npm.npmCliPath,
+            packageRoot: npm.packageRoot,
+            version: release.version,
+          });
+          return { available, error: null };
+        } catch (error) {
+          return { available: false, error: boundedError(error) };
+        }
       }
-      selectInstallerReleaseArtifact(release, target, context.metadata.repository);
-      return true;
+      selectInstallerReleaseArtifact(release, context.metadata.target, context.metadata.repository);
+      return { available: true, error: null };
     } catch {
-      return false;
+      return {
+        available: false,
+        error: "The latest GitHub Release has no verified asset for this installation",
+      };
     }
   }
 
@@ -163,14 +187,9 @@ export function createHostUpdateCoordinator(
         candidate = release;
         const updateAvailable =
           compareSemanticVersions(context.metadata.version, release.version) < 0;
-        let installationAvailable = false;
-        let error: string | null = null;
-        if (updateAvailable) {
-          installationAvailable = await installable(context, release);
-          if (!installationAvailable) {
-            error = "The latest GitHub Release has no verified asset for this installation";
-          }
-        }
+        const { available: installationAvailable, error } = updateAvailable
+          ? await installable(context, release)
+          : { available: false, error: null };
         return {
           currentVersion: context.metadata.version,
           installation: context.installation.kind,

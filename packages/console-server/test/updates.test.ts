@@ -5,9 +5,30 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 
 import { createBackgroundUpdateManager } from "@codexhost/update-manager";
+import type * as UpdateManager from "@codexhost/update-manager";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createConsoleUpdates, type ConsoleUpdateTarget } from "../src/updates.js";
+
+// The user's npm and its registry are external: every npm release is installable by default.
+const npmRegistry = vi.hoisted(() => ({
+  installable: vi.fn(async (): Promise<boolean> => true),
+  prefetch: vi.fn(async (): Promise<void> => {}),
+}));
+vi.mock("@codexhost/update-manager", async (importOriginal) => {
+  const original = await importOriginal<typeof UpdateManager>();
+  return {
+    ...original,
+    createNpmReleaseAvailability: () => ({ installable: npmRegistry.installable }),
+    createBackgroundUpdateManager: (
+      dependencies: UpdateManager.BackgroundUpdateManagerDependencies = {},
+    ) =>
+      original.createBackgroundUpdateManager({
+        prefetchNpm: npmRegistry.prefetch,
+        ...dependencies,
+      }),
+  };
+});
 
 let root: string;
 
@@ -57,30 +78,49 @@ async function npmLayout(platform: NodeJS.Platform = process.platform) {
 }
 
 describe("console updates", () => {
-  it("refuses fork npm updates without both verified fork assets", async () => {
-    const { target, environment } = await npmLayout();
-    if (!target.distribution) throw new Error("fixture has no distribution metadata");
-    target.distribution = {
-      ...target.distribution,
-      repository: "yinwusaya/codex-host",
-      commit: "a".repeat(40),
-    };
-    const updates = createConsoleUpdates({
-      onHandedOff: vi.fn(),
-      environment,
-      stateDirectory: path.join(root, "state"),
-      fetchLatest: async () => ({
-        ...release,
-        releaseNotesUrl: "https://github.com/yinwusaya/codex-host/releases/tag/v1.1.0",
-      }),
-    });
-    await expect(updates.check(target)).resolves.toMatchObject({
-      updateAvailable: true,
-      installationAvailable: false,
-      error: "The latest GitHub Release has no verified asset for this installation",
-    });
-    await expect(updates.start(target)).rejects.toThrow("must contain exactly one");
-  });
+  it.each([true, false])(
+    "checks fork npm assets without the registry (assets: %s)",
+    async (available) => {
+      const { target, environment } = await npmLayout();
+      if (!target.distribution) throw new Error("fixture has no distribution metadata");
+      target.distribution = {
+        ...target.distribution,
+        repository: "yinwusaya/codex-host",
+        commit: "a".repeat(40),
+      };
+      const updates = createConsoleUpdates({
+        onHandedOff: vi.fn(),
+        environment,
+        stateDirectory: path.join(root, "state"),
+        fetchLatest: async () => ({
+          ...release,
+          releaseNotesUrl: "https://github.com/yinwusaya/codex-host/releases/tag/v1.1.0",
+          assets: available
+            ? ["codexhost-cli-1.1.0.tgz", "codexhost-cli-1.1.0-linux-x64.tgz"].map((name) => ({
+                name,
+                size: 42,
+                digest: `sha256:${"ab".repeat(32)}`,
+                downloadUrl: `https://github.com/yinwusaya/codex-host/releases/download/v1.1.0/${name}`,
+              }))
+            : [],
+        }),
+        npmRelease: {
+          installable: async () => {
+            throw new Error("npm registry unavailable");
+          },
+        },
+      });
+      await expect(updates.check(target)).resolves.toMatchObject({
+        updateAvailable: true,
+        installationAvailable: available,
+        error: available
+          ? null
+          : "The latest GitHub Release has no verified asset for this installation",
+      });
+      if (!available)
+        await expect(updates.start(target)).rejects.toThrow("must contain exactly one");
+    },
+  );
   it("reports an available update from distribution metadata alone", async () => {
     const { target, environment } = await npmLayout();
     const updates = createConsoleUpdates({
@@ -96,6 +136,29 @@ describe("console updates", () => {
       updateAvailable: true,
       installationAvailable: true,
       error: null,
+    });
+  });
+
+  it("waits for an npm registry that has not synced the release", async () => {
+    const { target, environment } = await npmLayout();
+    npmRegistry.installable.mockImplementationOnce(async () => false);
+    const updates = createConsoleUpdates({
+      onHandedOff: vi.fn(),
+      environment,
+      stateDirectory: path.join(root, "state"),
+      fetchLatest: async () => release,
+    });
+    await expect(updates.check(target)).resolves.toMatchObject({
+      latestVersion: "1.1.0",
+      updateAvailable: true,
+      installationAvailable: false,
+      error: null,
+    });
+    expect(npmRegistry.installable).toHaveBeenCalledWith({
+      nodePath: environment.CODEXHOST_NPM_NODE_PATH,
+      npmCliPath: environment.CODEXHOST_NPM_CLI_PATH,
+      packageRoot: environment.CODEXHOST_NPM_PACKAGE_ROOT,
+      version: "1.1.0",
     });
   });
 

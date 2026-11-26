@@ -16,11 +16,27 @@ import {
 import { createHostUpdateCoordinator } from "../src/update-coordinator.js";
 
 const discovery = vi.hoisted(() => ({ cli: vi.fn(), http: vi.fn() }));
-vi.mock("@codexhost/update-manager", async (importOriginal) => ({
-  ...(await importOriginal<typeof UpdateManager>()),
-  fetchLatestGitHubReleaseWithGitHubCli: discovery.cli,
-  fetchLatestGitHubRelease: discovery.http,
+// The user's npm and its registry are external: every npm release is installable by default.
+const npmRegistry = vi.hoisted(() => ({
+  installable: vi.fn(async (): Promise<boolean> => true),
+  prefetch: vi.fn(async (): Promise<void> => {}),
 }));
+vi.mock("@codexhost/update-manager", async (importOriginal) => {
+  const original = await importOriginal<typeof UpdateManager>();
+  return {
+    ...original,
+    fetchLatestGitHubReleaseWithGitHubCli: discovery.cli,
+    fetchLatestGitHubRelease: discovery.http,
+    createNpmReleaseAvailability: () => ({ installable: npmRegistry.installable }),
+    createBackgroundUpdateManager: (
+      dependencies: UpdateManager.BackgroundUpdateManagerDependencies = {},
+    ) =>
+      original.createBackgroundUpdateManager({
+        prefetchNpm: npmRegistry.prefetch,
+        ...dependencies,
+      }),
+  };
+});
 
 const roots: string[] = [];
 it("reports the shared source launch version when packaged update resources are absent", async () => {
@@ -149,33 +165,53 @@ function release(version = "1.2.3"): CodexhostLatestRelease {
 }
 
 describe("Host update coordinator", () => {
-  it("uses fork metadata for discovery and refuses missing fork npm assets", async () => {
-    const fixture = await npmFixture("linux");
-    const metadataPath = path.join(
-      path.dirname(fixture.hostRuntimePath),
-      "codexhost-distribution.json",
-    );
-    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-    await writeFile(
-      metadataPath,
-      JSON.stringify({ ...metadata, repository: "yinwusaya/codex-host", commit: "a".repeat(40) }),
-    );
-    discovery.cli.mockResolvedValue(null);
-    discovery.http.mockResolvedValue(release());
-    const coordinator = createHostUpdateCoordinator({
-      ...fixture,
-      platform: "linux",
-      architecture: "x64",
-    });
-    await expect(coordinator.check()).resolves.toMatchObject({ installationAvailable: false });
-    expect(discovery.cli).toHaveBeenCalledWith(
-      expect.objectContaining({ repository: "yinwusaya/codex-host" }),
-    );
-    expect(discovery.http).toHaveBeenCalledWith(
-      expect.objectContaining({ repository: "yinwusaya/codex-host" }),
-    );
-    await expect(coordinator.start()).rejects.toThrow("exactly one");
-  });
+  it.each([true, false])(
+    "checks fork npm assets without the registry (assets: %s)",
+    async (available) => {
+      const fixture = await npmFixture("linux");
+      const metadataPath = path.join(
+        path.dirname(fixture.hostRuntimePath),
+        "codexhost-distribution.json",
+      );
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+      await writeFile(
+        metadataPath,
+        JSON.stringify({ ...metadata, repository: "yinwusaya/codex-host", commit: "a".repeat(40) }),
+      );
+      discovery.cli.mockResolvedValue(null);
+      discovery.http.mockResolvedValue({
+        ...release(),
+        assets: available
+          ? ["codexhost-cli-1.2.3.tgz", "codexhost-cli-1.2.3-linux-x64.tgz"].map((name) => ({
+              name,
+              size: 42,
+              digest: `sha256:${"ab".repeat(32)}`,
+              downloadUrl: `https://github.com/yinwusaya/codex-host/releases/download/v1.2.3/${name}`,
+            }))
+          : [],
+      });
+      const coordinator = createHostUpdateCoordinator({
+        ...fixture,
+        platform: "linux",
+        architecture: "x64",
+        npmRelease: {
+          installable: async () => {
+            throw new Error("npm registry unavailable");
+          },
+        },
+      });
+      await expect(coordinator.check()).resolves.toMatchObject({
+        installationAvailable: available,
+      });
+      expect(discovery.cli).toHaveBeenCalledWith(
+        expect.objectContaining({ repository: "yinwusaya/codex-host" }),
+      );
+      expect(discovery.http).toHaveBeenCalledWith(
+        expect.objectContaining({ repository: "yinwusaya/codex-host" }),
+      );
+      if (!available) await expect(coordinator.start()).rejects.toThrow("exactly one");
+    },
+  );
 
   it.each([true, false])(
     "prefers gh and only falls back when needed (CLI available: %s)",
@@ -202,6 +238,44 @@ describe("Host update coordinator", () => {
         );
     },
   );
+
+  it.each([
+    [
+      "waits for an npm registry that has not synced the release",
+      async () => false,
+      { updateAvailable: true, installationAvailable: false, error: null },
+    ],
+    [
+      "reports an npm registry it cannot query",
+      async () => {
+        throw new Error("Could not query the npm registry: npm error code ENOTFOUND");
+      },
+      {
+        updateAvailable: true,
+        installationAvailable: false,
+        error: "Could not query the npm registry: npm error code ENOTFOUND",
+      },
+    ],
+  ])("%s", async (_case, installable, expected) => {
+    const fixture = await npmFixture();
+    npmRegistry.installable.mockImplementationOnce(installable);
+    const coordinator = createHostUpdateCoordinator({
+      ...fixture,
+      platform: "darwin",
+      architecture: "arm64",
+      fetchLatest: async () => release(),
+    });
+    await expect(coordinator.check()).resolves.toMatchObject({
+      latestVersion: "1.2.3",
+      ...expected,
+    });
+    expect(npmRegistry.installable).toHaveBeenCalledWith({
+      nodePath: fixture.environment.CODEXHOST_NPM_NODE_PATH,
+      npmCliPath: fixture.environment.CODEXHOST_NPM_CLI_PATH,
+      packageRoot: fixture.environment.CODEXHOST_NPM_PACKAGE_ROOT,
+      version: "1.2.3",
+    });
+  });
 
   it("does not fall back after caller cancellation", async () => {
     const fixture = await npmFixture();
@@ -250,8 +324,9 @@ describe("Host update coordinator", () => {
     await expect(coordinator.start()).resolves.toMatchObject({
       status: { version: "1.2.3", installation: "npm", phase: "prepared" },
     });
+    // A second request joins the operation in progress, which may still be downloading.
     await expect(coordinator.start()).resolves.toMatchObject({
-      status: { version: "1.2.3", phase: "prepared" },
+      status: { version: "1.2.3", installation: "npm" },
     });
     const home = fixture.environment.HOME;
     if (!home) throw new Error("fixture HOME is missing");

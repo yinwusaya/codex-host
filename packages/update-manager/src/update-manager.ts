@@ -11,6 +11,7 @@ import {
   type ArtifactDownloader,
   type ArtifactSource,
 } from "./artifact.js";
+import { prefetchNpmRelease, type NpmReleaseTarget } from "./npm-registry.js";
 import {
   parseUpdateStatus,
   preparedStatus,
@@ -85,6 +86,8 @@ export interface BackgroundUpdateManagerDependencies {
   randomId?(): string;
   download?: ArtifactDownloader;
   spawnUpdater?(executable: string, requestPath: string): ChildProcess;
+  /** Downloads an npm release into the npm cache before any service stops. */
+  prefetchNpm?(target: NpmReleaseTarget): Promise<void>;
   now?(): number;
 }
 
@@ -245,6 +248,7 @@ export function createBackgroundUpdateManager(
   const randomId = dependencies.randomId ?? randomUUID;
   const download = dependencies.download ?? downloadArtifact;
   const spawnUpdater = dependencies.spawnUpdater ?? defaultSpawnUpdater;
+  const prefetchNpm = dependencies.prefetchNpm ?? ((target) => prefetchNpmRelease(target));
   const now = dependencies.now ?? Date.now;
   const preparedRequests = new Set<string>();
 
@@ -453,6 +457,9 @@ export function createBackgroundUpdateManager(
     async prepareNpm(options: NpmUpdateOptions): Promise<PreparedBackgroundUpdate> {
       const common = await prepareCommon(options, "npm");
       try {
+        const nodePath = await requireRegularFile(options.nodePath, "npm Node.js executable");
+        const npmCliPath = await requireRegularFile(options.npmCliPath, "npm CLI");
+        const packageRoot = requireAbsolutePath(options.packageRoot, "npm platform package root");
         const artifacts = options.artifacts
           ? {
               cli: await prepareArtifact(common, "npm", options.artifacts.cli, "cli.tgz"),
@@ -464,15 +471,24 @@ export function createBackgroundUpdateManager(
               ),
             }
           : undefined;
+        if (!artifacts) {
+          // The Updater installs from this cache after the services stop, so a registry that is
+          // unreachable or lacks the release fails here while everything keeps running.
+          await writeStatusSnapshot(
+            common.statusPath,
+            statusSnapshot(common.version, "npm", "downloading"),
+          );
+          await prefetchNpm({ nodePath, npmCliPath, packageRoot, version: common.version });
+        }
         return await finalize(common, {
           kind: "npm",
-          node_path: await requireRegularFile(options.nodePath, "npm Node.js executable"),
-          npm_cli_path: await requireRegularFile(options.npmCliPath, "npm CLI"),
+          node_path: nodePath,
+          npm_cli_path: npmCliPath,
           npm_launcher_path: await requireRegularFile(
             options.npmLauncherPath,
             "npm codexhost launcher",
           ),
-          npm_package_root: requireAbsolutePath(options.packageRoot, "npm platform package root"),
+          npm_package_root: packageRoot,
           ...(artifacts
             ? {
                 artifacts: {

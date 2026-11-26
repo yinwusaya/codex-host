@@ -4,6 +4,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -44,11 +45,15 @@ import { useChatScroll } from "./use-chat-scroll.ts";
 import {
   REMOTE_PEER_FILE_PROXY_PATH,
   REMOTE_PEER_HOST_ID_PREFIX,
+  WEB_HANDOFF_PROJECTION,
+  type ThreadHandoffMetadata,
 } from "@codexhost/shared-contracts";
 import { fileMediaUrl, resolveWorkspacePath } from "@deepseek-ai/dsh-util-workspace-path";
 import { useSentMessageEditing } from "./SentMessageEditor.tsx";
 import { SelectionActions } from "./SelectionActions.tsx";
 import { ChatMarkdown } from "./ChatMarkdown.tsx";
+import { HandoffDivider } from "./HandoffDivider.tsx";
+import { HandoffModal } from "./HandoffModal.tsx";
 import css from "./ChatView.module.css";
 
 declare module "@deepseek-ai/dsh-session-projection/types" {
@@ -58,6 +63,8 @@ declare module "@deepseek-ai/dsh-session-projection/types" {
     /** Last failed remote history read; cleared by a successful authoritative read. */
     remoteHistoryError: { code: string; message: string } | null;
     nativeConnection: { state: "connected" | "reconnecting"; message?: string } | null;
+    /** Cross-Harness context handoff provenance for derived Threads. */
+    codexhostHandoff: ThreadHandoffMetadata | null;
   }
 }
 
@@ -214,10 +221,15 @@ export function ChatView({
   inspectCall,
   chatScroll,
   forkAt,
+  openSession,
+  handoff,
+  clearHandoffRequest,
+  loadModelCatalog,
   loadTurnDiffs,
   editMessage,
   fileMentions,
   usePresentation,
+  useHandoffRequest,
   useProjection,
   useInput,
   inputActions,
@@ -256,6 +268,14 @@ export function ChatView({
   const inbox = useProjection("inbox") as unknown as InboxState | undefined;
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions((s) => s.byId[sessionId]?.cwd);
+  const remoteHostId = useSessions((s) => s.byId[sessionId]?.projectionValues?.remoteHost?.hostId);
+  const currentHarnessId = useSessions(
+    (s) =>
+      (
+        s.byId[sessionId]?.projectionValues as
+          { readonly harnessIdentity?: { readonly id?: string } | null } | undefined
+      )?.harnessIdentity?.id,
+  );
   const isRemote = useSessions((s) => Boolean(s.byId[sessionId]?.projectionValues?.remoteHost));
   const remotePeerFilePreview = useSessions((s) => {
     const remoteHost = s.byId[sessionId]?.projectionValues?.remoteHost;
@@ -295,6 +315,41 @@ export function ChatView({
   const carrier = useSyncExternalStore(connection.state.subscribe, connection.state.getSnapshot);
   const recoveryLasting = useSustainedRecovery(carrier !== "connected");
   const compacting = useProjection("compacting");
+  const handoffMeta = useProjection(WEB_HANDOFF_PROJECTION);
+  const pendingHandoffRequest = useHandoffRequest((request) => request);
+  const [handoffTarget, setHandoffTarget] = useState<{
+    readonly sessionId: string;
+    readonly atSeq?: number;
+    readonly initialHarnessId?: string;
+  } | null>(null);
+  const activeHandoffTarget = handoffTarget?.sessionId === sessionId ? handoffTarget : null;
+  const openHandoffAt = useCallback(
+    (seq: number) => {
+      setHandoffTarget({ sessionId, atSeq: seq });
+    },
+    [sessionId],
+  );
+  const closeHandoffModal = useCallback(() => {
+    setHandoffTarget(null);
+  }, []);
+  const handoffEnabled = handoff !== undefined && loadModelCatalog !== undefined;
+  useEffect(() => {
+    if (
+      pendingHandoffRequest === null ||
+      pendingHandoffRequest.sessionId !== sessionId ||
+      !handoffEnabled
+    ) {
+      return;
+    }
+    setHandoffTarget({
+      sessionId,
+      ...(pendingHandoffRequest.atSeq === undefined ? {} : { atSeq: pendingHandoffRequest.atSeq }),
+      ...(pendingHandoffRequest.targetHarnessId === undefined
+        ? {}
+        : { initialHarnessId: pendingHandoffRequest.targetHarnessId }),
+    });
+    clearHandoffRequest(pendingHandoffRequest.seq);
+  }, [clearHandoffRequest, handoffEnabled, pendingHandoffRequest, sessionId]);
   const openState = useSession((s) => s.openState);
   const historyError = useProjection("remoteHistoryError");
   const nativeConnection = useProjection("nativeConnection");
@@ -491,6 +546,14 @@ export function ChatView({
                 )}
               </div>
             )}
+            {!hasMore && handoffMeta != null && (
+              <HandoffDivider
+                handoff={handoffMeta}
+                hostId={remoteHostId}
+                onOpenSource={openSession}
+                t={t}
+              />
+            )}
             <ChatMarkdown
               key={sessionId}
               openExternalLink={openExternalLink}
@@ -517,6 +580,7 @@ export function ChatView({
                 openSkill={openSkill}
                 inspectCall={inspectCall}
                 forkAt={forkAt}
+                handoffAt={handoffEnabled ? openHandoffAt : undefined}
                 loadTurnDiffs={loadTurnDiffs}
                 messageEditing={messageEditing}
                 loadImage={loadImage}
@@ -579,6 +643,19 @@ export function ChatView({
             <IconChevronDownOutlineRegular />
           </button>
         </div>
+      )}
+      {activeHandoffTarget !== null && handoff !== undefined && loadModelCatalog !== undefined && (
+        <HandoffModal
+          key={`${sessionId}:${activeHandoffTarget.atSeq ?? "latest"}:${activeHandoffTarget.initialHarnessId ?? "auto"}`}
+          open
+          atSeq={activeHandoffTarget.atSeq}
+          currentHarnessId={currentHarnessId}
+          initialHarnessId={activeHandoffTarget.initialHarnessId}
+          loadModelCatalog={loadModelCatalog}
+          onSubmit={handoff}
+          onClose={closeHandoffModal}
+          t={t}
+        />
       )}
       {fileOpenError !== null && (
         <FileOpenErrorDialog

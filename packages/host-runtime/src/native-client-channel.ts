@@ -6,6 +6,7 @@ import {
   type ClientInteraction,
   type ClientSnapshotOptions,
   type ClientThreadSnapshot,
+  type ThreadHandoffMetadata,
 } from "@codexhost/shared-contracts";
 
 import type { ClientChannelEvents } from "./client-channel-events.js";
@@ -35,6 +36,7 @@ export interface NativeClientChannelDependencies {
     error?: { code: number; message: string },
   ): Promise<void>;
   desktopConnected?(): boolean;
+  readThreadHandoff?(threadId: string): Promise<ThreadHandoffMetadata | null>;
 }
 
 interface PendingNativeInteraction {
@@ -555,12 +557,14 @@ export class NativeClientChannel {
       if (!this.#configuration.has(threadId)) {
         await this.#request("thread/resume", { threadId, excludeTurns: true });
       }
+      const handoff = (await this.#host.readThreadHandoff?.(threadId)) ?? undefined;
       return {
         result: jsonValueSchema.parse({
           owner: "codex",
           locked: false,
           ...this.#configuration.get(threadId),
           history: { fork: true, forkAcrossCwd: false, rollbackLastTurn: false },
+          ...(handoff ? { handoff } : {}),
         }),
       };
     }
