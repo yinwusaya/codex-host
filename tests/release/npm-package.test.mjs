@@ -51,7 +51,7 @@ const launcherStdout =
   "Shared Host stopped; interrupted 2 running task(s)\nstartup:" + "x".repeat(1024 * 1024);
 
 it("installs fork platform dependencies from the same GitHub release, not npm", () => {
-  const repository = "yinwusaya/codex-host";
+  const repository = "yinwusaya/codex-host-fork";
   const manifest = createNpmMetaPackageManifest({ version: "1.2.3", repository });
   expect(Object.keys(manifest.optionalDependencies)).toEqual([
     "@codexhost/cli-win32-x64",
@@ -67,15 +67,17 @@ it("installs fork platform dependencies from the same GitHub release, not npm", 
   }
   for (const source of Object.values(manifest.optionalDependencies)) {
     expect(source).toMatch(
-      /^https:\/\/github\.com\/yinwusaya\/codex-host\/releases\/download\/v1\.2\.3\/codexhost-cli-1\.2\.3-(?:windows|linux)-(?:x64|arm64)\.tgz$/u,
+      /^https:\/\/github\.com\/yinwusaya\/codex-host-fork\/releases\/download\/v1\.2\.3\/codexhost-cli-1\.2\.3-(?:windows|linux)-(?:x64|arm64)\.tgz$/u,
     );
   }
   expect(createNpmMetaReadme({ version: "1.2.3", repository })).toContain(
-    "npm install -g https://github.com/yinwusaya/codex-host/releases/download/v1.2.3/codexhost-cli-1.2.3.tgz",
+    "npm install -g https://github.com/yinwusaya/codex-host-fork/releases/download/v1.2.3/codexhost-cli-1.2.3.tgz",
   );
   const launcher = createNpmBinLauncherSource({ version: "1.2.3", repository });
   expect(launcher).not.toContain("npm install -g @codexhost/cli@");
-  expect(launcher).toContain('const repositoryUrl = "https://github.com/yinwusaya/codex-host"');
+  expect(launcher).toContain(
+    'const repositoryUrl = "https://github.com/yinwusaya/codex-host-fork"',
+  );
 });
 
 async function temporaryDirectory() {

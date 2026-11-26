@@ -2,7 +2,7 @@
 
 ## Code And Runtime
 
-- Repository: `https://github.com/yinwusaya/codex-host`.
+- Repository: `https://github.com/yinwusaya/codex-host-fork`.
 - Branch flow: upstream `BytePioneer-AI/codex-host` `main` -> `upstream-sync` -> `dev` -> personal production `main` -> release tag.
 - `upstream-sync` is a fast-forward-only upstream mirror; never add personal commits there. `dev` owns personal development and upstream integration. `main` accepts only validated, explicitly approved production candidates from `dev`; never synchronize upstream directly into production.
 - Before release preparation, refresh `upstream-sync` from upstream `main`, then merge the intended upstream changes into `dev` without discarding personal changes. Verify the integrated candidate before choosing a release version; fetching alone is not integration.
@@ -25,13 +25,13 @@ Recovery uses an existing, verified annotated tag and manual `Release packages` 
 
 ## Artifacts And Installation
 
-The fork Release contains two Windows EXE installers, four Windows/Linux x64 and arm64 npm tarballs, one CLI meta tarball, and `release-evidence.json`. `yinwusaya/codex-host` excludes both macOS targets from its build matrix, asset validation, and npm meta dependencies. It does not build or require a signed Android APK. Upstream macOS support and historical release assets are unchanged. Each platform payload includes its `version`, `distribution`, `target`, `repository` and full source `commit`. Build jobs stamp `CODEXHOST_RELEASE_REPOSITORY` and `CODEXHOST_RELEASE_COMMIT` from the workflow repository and verified commit, not from credentials or the build job's ambient checkout SHA.
+The fork Release contains two Windows EXE installers, four Windows/Linux x64 and arm64 npm tarballs, one CLI meta tarball, and `release-evidence.json`. `yinwusaya/codex-host-fork` excludes both macOS targets from its build matrix, asset validation, and npm meta dependencies. It does not build or require a signed Android APK. Upstream macOS support and historical release assets are unchanged. Each platform payload includes its `version`, `distribution`, `target`, `repository` and full source `commit`. Build jobs stamp `CODEXHOST_RELEASE_REPOSITORY` and `CODEXHOST_RELEASE_COMMIT` from the workflow repository and verified commit, not from credentials or the build job's ambient checkout SHA.
 
 Use Node.js managed by the machine's version manager for npm installations. First-install example (replace `<version>` with an actually published version):
 
 ```sh
 npm install --global --prefix "$HOME/.local/share/codexhost" \
-  "https://github.com/yinwusaya/codex-host/releases/download/v<version>/codexhost-cli-<version>.tgz"
+  "https://github.com/yinwusaya/codex-host-fork/releases/download/v<version>/codexhost-cli-<version>.tgz"
 ```
 
 The meta package resolves platform dependencies to URLs in the same fork Release, not `@codexhost/*` versions from the npm registry. Keep the prefix fixed across updates and keep its `bin/codexhost` as the sole daily-use entry. Do not install the repository root with npm. Existing G7 uses this prefix; retain its existing wrapper and Node selection rather than installing another runtime.

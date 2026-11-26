@@ -124,7 +124,7 @@ describe("platform packagers", () => {
   });
 
   it.skipIf(process.platform !== "linux").each([
-    ["yinwusaya/codex-host", true, false],
+    ["yinwusaya/codex-host-fork", true, false],
     ["BytePioneer-AI/codex-host", false, true],
     ["example/codex-host", true, true],
   ])("aligns the matrix and release assets for %s", async (repository, fork, includeMacos) => {

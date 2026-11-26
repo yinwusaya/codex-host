@@ -47,7 +47,7 @@ it("upgrades fork tarballs offline at the same prefix without resolving a stale 
         await mkdir(path.join(directory, "bin"), { recursive: true });
         const manifest =
           kind === "cli"
-            ? createNpmMetaPackageManifest({ version, repository: "yinwusaya/codex-host" })
+            ? createNpmMetaPackageManifest({ version, repository: "yinwusaya/codex-host-fork" })
             : { name: platformName, version };
         await writeFile(path.join(directory, "package.json"), JSON.stringify(manifest));
         await writeFile(path.join(directory, "bin/codexhost.js"), "// isolated fixture\n");

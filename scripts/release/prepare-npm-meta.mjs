@@ -37,7 +37,8 @@ export function createNpmMetaPackageManifest({ version, repository }) {
       Object.entries(NPM_PLATFORM_PACKAGE_NAMES)
         .filter(
           ([target]) =>
-            repository?.toLowerCase() !== "yinwusaya/codex-host" || !target.startsWith("macos-"),
+            repository?.toLowerCase() !== "yinwusaya/codex-host-fork" ||
+            !target.startsWith("macos-"),
         )
         .map(([target, packageName]) => [
           packageName,

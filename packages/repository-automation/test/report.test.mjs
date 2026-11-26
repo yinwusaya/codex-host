@@ -20,7 +20,7 @@ describe("short terminal CI comments", () => {
   it("uses the owning repository's supported CI platforms", () => {
     const state = ci();
     state.jobs = state.jobs.filter(({ name }) => name !== "Check macos-26");
-    const repo = { owner: "yinwusaya", repo: "codex-host" };
+    const repo = { owner: "yinwusaya", repo: "codex-host-fork" };
     expect(render(state)).not.toContain("CI 全部通过。");
     expect(renderReport({ item: pr(), ci: state, repo })).toContain("CI 全部通过。");
   });

@@ -188,7 +188,7 @@ describe("exact-commit CI release gate", () => {
   });
 
   it("requires Linux and Windows CI on the personal fork without accepting old failed runs", () => {
-    const fork = { owner: "yinwusaya", repo: "codex-host" };
+    const fork = { owner: "yinwusaya", repo: "codex-host-fork" };
     const run = ci();
     const jobs = run.jobs.filter(({ name }) => name !== "Check macos-26");
     expect(assertReleaseCi({ ...run, jobs }, head, "main", fork)).toMatchObject({ ciRunId: 42 });

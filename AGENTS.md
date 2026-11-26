@@ -2,7 +2,7 @@
 
 ## Personal Fork Releases
 
-This checkout belongs to `yinwusaya/codex-host`. `upstream-sync` mirrors upstream `main`, `dev` is for personal development, and `main` is the personal production branch. Read `docs/operations/fork-releases.md` before preparing a release or changing update behavior. Release only from `main` with exact `main` push CI and GitHub Release assets; the upstream release skill's npm publication instructions do not apply to this fork. Never publish `@codexhost/*` to the upstream npm registry. Promoting `dev` to production `main` requires separate user confirmation after validation; publishing tags also requires explicit Release Notes approval. Do not change running machines or the G7 source-sync timer as part of a code-only change.
+This checkout belongs to `yinwusaya/codex-host-fork`. `upstream-sync` mirrors upstream `main`, `dev` is for personal development, and `main` is the personal production branch. Read `docs/operations/fork-releases.md` before preparing a release or changing update behavior. Release only from `main` with exact `main` push CI and GitHub Release assets; the upstream release skill's npm publication instructions do not apply to this fork. Never publish `@codexhost/*` to the upstream npm registry. Promoting `dev` to production `main` requires separate user confirmation after validation; publishing tags also requires explicit Release Notes approval. Do not change running machines or the G7 source-sync timer as part of a code-only change.
 
 ## Product Intent
 

@@ -36,7 +36,7 @@ describe("workflow and form contracts", () => {
     }
     expect(workflow).toContain("name: Check Linux ARM64");
     expect(workflow).toContain(
-      "github.repository == 'yinwusaya/codex-host' && '[\"ubuntu-22.04\",\"windows-latest\"]'",
+      "github.repository == 'yinwusaya/codex-host-fork' && '[\"ubuntu-22.04\",\"windows-latest\"]'",
     );
     expect(workflow).toContain("inputs.platform != 'macos-26'");
   });
@@ -111,12 +111,12 @@ describe("workflow and form contracts", () => {
       workflow.indexOf("  android-apk:"),
       workflow.indexOf("  publish-release:"),
     );
-    expect(android).toContain("github.repository != 'yinwusaya/codex-host'");
+    expect(android).toContain("github.repository != 'yinwusaya/codex-host-fork'");
     expect(workflow).toContain(
-      "github.repository == 'yinwusaya/codex-host' && needs.android-apk.result == 'skipped'",
+      "github.repository == 'yinwusaya/codex-host-fork' && needs.android-apk.result == 'skipped'",
     );
     expect(workflow).toMatch(
-      /if \[\[ "\$\{GITHUB_REPOSITORY,,\}" != "yinwusaya\/codex-host" \]\]; then\s+expected\+=\([^\n]+\)\s+expected\+=\("codexhost-\$\{VERSION\}-android\.apk"\)/u,
+      /if \[\[ "\$\{GITHUB_REPOSITORY,,\}" != "yinwusaya\/codex-host-fork" \]\]; then\s+expected\+=\([^\n]+\)\s+expected\+=\("codexhost-\$\{VERSION\}-android\.apk"\)/u,
     );
     const ci = await read(".github/workflows/ci.yml");
     expect(ci).toMatch(/branches:\s+- main\s+- dev/u);

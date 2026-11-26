@@ -1,6 +1,6 @@
 # 仓库维护自动化
 
-个人仓库 `yinwusaya/codex-host` 仅从 `main` 发布，不发布上游 npm 包，具体规则以 [fork 发布](fork-releases.md) 为准。下文 npm 发布渠道说明描述上游默认流程。CI 同时接受 `main` 和 `dev` push，正式发布仅接受确切提交的 `main` push 结果。
+个人仓库 `yinwusaya/codex-host-fork` 仅从 `main` 发布，不发布上游 npm 包，具体规则以 [fork 发布](fork-releases.md) 为准。下文 npm 发布渠道说明描述上游默认流程。CI 同时接受 `main` 和 `dev` push，正式发布仅接受确切提交的 `main` push 结果。
 
 PR 维护只做两件事：**明确标题自动标签、CI 结束后更新一条简短评论**。不调用模型，不执行 PR 代码，不重复运行 CI。
 

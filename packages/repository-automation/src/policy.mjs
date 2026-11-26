@@ -8,7 +8,7 @@ export const CI_JOBS = [
 ];
 
 export function requiredCiJobs(repo) {
-  return `${repo?.owner}/${repo?.repo}`.toLowerCase() === "yinwusaya/codex-host"
+  return `${repo?.owner}/${repo?.repo}`.toLowerCase() === "yinwusaya/codex-host-fork"
     ? CI_JOBS.filter((name) => name !== "Check macos-26")
     : CI_JOBS;
 }
